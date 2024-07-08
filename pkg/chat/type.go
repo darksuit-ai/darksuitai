@@ -1,4 +1,4 @@
-package ai
+package chat
 
 type AI struct {
 	ChatInstruction []byte

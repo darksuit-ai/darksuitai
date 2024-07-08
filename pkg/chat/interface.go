@@ -1,4 +1,4 @@
-package convai
+package chat
 
 // Define a common interface that both LLM types will implement.
 type LLM interface {

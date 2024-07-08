@@ -83,8 +83,12 @@ func main() {
 		// handle the error as you wish
 	}
 	fmt.Println(resp)
-
-}
+	// to stream
+	streamText :=llm.Stream("hello from earth🌍, what is your name?")
+		for r := range streamText{
+			fmt.Println(r)
+		}
+	}
 
 ```
 

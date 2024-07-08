@@ -1,4 +1,4 @@
-package convai
+package convchat
 
 import (
 	ant "github.com/darksuit-ai/darksuitai/internal/llms/anthropic"

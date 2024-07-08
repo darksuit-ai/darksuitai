@@ -16,7 +16,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/darksuit-ai/darksuitai/internal/llms/openai/types"
+	"github.com/darksuit-ai/darksuitai/internal/llms/groq/types"
 )
 
 // RateLimiter is a simple rate limiter implementation
@@ -86,15 +86,15 @@ func calculateRetryTimeout(retryCount int) time.Duration {
 
 func checkEnvVar() {
 	// Check for the required environment variable
-	openaiAPIKey := os.Getenv("OPENAI_API_KEY")
-	if openaiAPIKey == "" {
+	groqAPIKey := os.Getenv("GROQ_API_KEY")
+	if groqAPIKey == "" {
 		log.Fatal(`
-OPENAI_API_KEY is not set or is empty. 
+GROQ_API_KEY is not set or is empty. 
 Please set it in the .env file as follows:
 
-    OPENAI_API_KEY="your_openai_api_key_here"
+    GROQ_API_KEY="your_groq_api_key_here"
 
-Make sure to replace "your_openai_api_key_here" with your actual OpenAI API key.
+Make sure to replace "your_groq_api_key_here" with your actual Groq API key.
 If you don't have a .env file, create one in the root directory of your project.
 `)
 	}
@@ -108,23 +108,23 @@ func Client(req types.ChatArgs) (string, error) {
 	reqJsonPayload, err := json.Marshal(req)
 
 	if err != nil {
-		return "", fmt.Errorf("error marshaling JSON: %w", err)
+		return err.Error(), fmt.Errorf("error marshaling JSON: %w", err)
 	}
 
 	// Create a new HTTP request
-	request, err := http.NewRequest("POST", "https://api.openai.com/v1/chat/completions", bytes.NewBuffer([]byte(reqJsonPayload)))
+	request, err := http.NewRequest("POST", "https://api.groq.com/openai/v1/chat/completions", bytes.NewBuffer([]byte(reqJsonPayload)))
 	if err != nil {
-		return "", fmt.Errorf("error creating HTTP request: %w", err)
+		return err.Error(), fmt.Errorf("error creating HTTP request: %w", err)
 	}
 
 	// Set request headers
-	request.Header.Set("Authorization", fmt.Sprintf("Bearer %s", os.Getenv("OPENAI_API_KEY")))
+	request.Header.Set("Authorization", fmt.Sprintf("Bearer %s", os.Getenv("GROQ_API_KEY")))
 	request.Header.Set("Content-Type", "application/json")
 
 	// Make the request with retry logic
 	resp, err := retryRequest(httpClient, request)
 	if err != nil {
-		return "", fmt.Errorf("error making HTTP request: %w", err)
+		return err.Error(), fmt.Errorf("error making HTTP request: %w", err)
 	}
 	// print(resp.StatusCode)
 	defer resp.Body.Close()
@@ -132,14 +132,14 @@ func Client(req types.ChatArgs) (string, error) {
 		// Read the response body
 		bodyBytes, err := io.ReadAll(resp.Body)
 		if err != nil {
-			return "", fmt.Errorf("error reading response body: %w", err)
+			return err.Error(), fmt.Errorf("error reading response body: %w", err)
 		}
 
 		// Convert the response body to a string
 		bodyString := string(bodyBytes)
 
 		// Print the response body
-		return bodyString,nil
+		return bodyString, nil
 	}
 	// Check if the response status indicates an error
 	if resp.StatusCode >= 400 {
@@ -147,7 +147,7 @@ func Client(req types.ChatArgs) (string, error) {
 		if err := json.NewDecoder(resp.Body).Decode(&clientErr); err != nil {
 			return err.Error(), fmt.Errorf("error unmarshaling error response: %w", err)
 		}
-		return clientErr.Error.Message, fmt.Errorf("API error: %v", clientErr)
+		return clientErr.Error["message"], fmt.Errorf("API error: %v", clientErr)
 	}
 
 	// Unmarshal the successful response
@@ -156,7 +156,7 @@ func Client(req types.ChatArgs) (string, error) {
 		return err.Error(), fmt.Errorf("error unmarshaling chat completion response: %w", err)
 	}
 	// Extract the content from the response
-	content := response.Content[0]["text"]
+	content := response.Choices[0].Message.Content
 
 	return content, nil
 }
@@ -166,13 +166,13 @@ func StreamCompleteClient(req types.ChatArgs) (string, error) {
 	// Marshal the payload to JSON
 	reqJsonPayload, err := json.Marshal(req)
 	if err != nil {
-		return "", fmt.Errorf("error marshaling JSON: %w", err)
+		return err.Error(), fmt.Errorf("error marshaling JSON: %w", err)
 	}
 
 	// Create a new HTTP request
-	request, err := http.NewRequest("POST", "https://api.openai.com/v1/chat/completions", bytes.NewBuffer([]byte(reqJsonPayload)))
+	request, err := http.NewRequest("POST", "https://api.groq.com/openai/v1/chat/completions", bytes.NewBuffer([]byte(reqJsonPayload)))
 	if err != nil {
-		return "", fmt.Errorf("error creating HTTP request: %w", err)
+		return err.Error(), fmt.Errorf("error creating HTTP request: %w", err)
 	}
 
 	// Set request headers
@@ -180,12 +180,12 @@ func StreamCompleteClient(req types.ChatArgs) (string, error) {
 	request.Header.Set("Content-Type", "application/json")
 	request.Header.Set("Cache-Control", "no-cache")
 	request.Header.Set("Connection", "keep-alive")
-	request.Header.Set("Authorization", fmt.Sprintf("Bearer %s", os.Getenv("OPENAI_API_KEY")))
+	request.Header.Set("Authorization", fmt.Sprintf("Bearer %s", os.Getenv("GROQ_API_KEY")))
 
 	// Make the request
 	resp, err := retryRequest(httpClient, request)
 	if err != nil {
-		return "", fmt.Errorf("error making HTTP request: %w", err)
+		return err.Error(), fmt.Errorf("error making HTTP request: %w", err)
 	}
 	defer resp.Body.Close()
 
@@ -193,7 +193,7 @@ func StreamCompleteClient(req types.ChatArgs) (string, error) {
 		// Read the response body
 		bodyBytes, err := io.ReadAll(resp.Body)
 		if err != nil {
-			return "", fmt.Errorf("error reading response body: %w", err)
+			return err.Error(), fmt.Errorf("error reading response body: %w", err)
 		}
 		return string(bodyBytes), nil
 	}
@@ -201,9 +201,9 @@ func StreamCompleteClient(req types.ChatArgs) (string, error) {
 	if resp.StatusCode >= 400 {
 		var clientErr types.ErrorResponse
 		if err := json.NewDecoder(resp.Body).Decode(&clientErr); err != nil {
-			return "", fmt.Errorf("error unmarshaling error response: %w", err)
+			return err.Error(), fmt.Errorf("error unmarshaling error response: %w", err)
 		}
-		return "", fmt.Errorf("API error: %v", clientErr)
+		return clientErr.Error.Message, fmt.Errorf("API error: %v", clientErr)
 	}
 	// Use a scanner to read the streaming response
 	scanner := bufio.NewScanner(resp.Body)
@@ -224,9 +224,9 @@ func StreamCompleteClient(req types.ChatArgs) (string, error) {
 			if bytes.Contains(data, []byte(`[DONE]`)) {
 				break
 			}
-			var chunk types.ChatCompletionChunk
+			var chunk types.ChatCompletionChunkResponse
 			if err := json.Unmarshal(data, &chunk); err != nil {
-				return "", err
+				return err.Error(), err
 			}
 
 			result = append(result, chunk.Choices[0].Delta.Content)
@@ -247,7 +247,7 @@ func StreamClient(req types.ChatArgs, chunkchan chan string) error {
 	}
 
 	// Create a new HTTP request
-	request, err := http.NewRequest("POST", "https://api.openai.com/v1/chat/completions", bytes.NewBuffer([]byte(reqJsonPayload)))
+	request, err := http.NewRequest("POST", "https://api.groq.com/openai/v1/chat/completions", bytes.NewBuffer([]byte(reqJsonPayload)))
 	if err != nil {
 		return err
 	}
@@ -257,7 +257,7 @@ func StreamClient(req types.ChatArgs, chunkchan chan string) error {
 	request.Header.Set("Content-Type", "application/json")
 	request.Header.Set("Cache-Control", "no-cache")
 	request.Header.Set("Connection", "keep-alive")
-	request.Header.Set("Authorization", fmt.Sprintf("Bearer %s", os.Getenv("OPENAI_API_KEY")))
+	request.Header.Set("Authorization", fmt.Sprintf("Bearer %s", os.Getenv("GROQ_API_KEY")))
 
 	// Make the request
 	resp, err := retryRequest(httpClient, request)
@@ -285,30 +285,21 @@ func StreamClient(req types.ChatArgs, chunkchan chan string) error {
 	}
 	// Use a scanner to read the streaming response
 	scanner := bufio.NewScanner(resp.Body)
-
 	for scanner.Scan() {
 
 		line := scanner.Bytes()
 
-		if bytes.HasPrefix(line, []byte(`event: message_stop)`)) {
-			break
-		}
-
 		if bytes.HasPrefix(line, []byte(`data: `)) {
-
-			data := bytes.TrimPrefix(line, []byte(`data: `))
-
-			if bytes.Contains(data, []byte(`[DONE]`)) {
+			if bytes.Contains(line, []byte(`data: [DONE]`)) {
 				break
 			}
-			var chunk types.ChatCompletionChunk
+			data := bytes.TrimPrefix(line, []byte(`data: `))
+			var chunk types.ChatCompletionChunkResponse
 			if err := json.Unmarshal(data, &chunk); err != nil {
 				return err
 			}
 			chunkchan <- chunk.Choices[0].Delta.Content
-
 		}
-
 	}
 	// Close the channel after sending all words
 	defer close(chunkchan)

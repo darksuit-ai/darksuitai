@@ -1,8 +1,9 @@
-package ai
+package chat
 
 import (
 	ant "github.com/darksuit-ai/darksuitai/internal/llms/anthropic"
 	oai "github.com/darksuit-ai/darksuitai/internal/llms/openai"
+	gro "github.com/darksuit-ai/darksuitai/internal/llms/groq"
 	"github.com/darksuit-ai/darksuitai/internal/utilities"
 )
 
@@ -37,6 +38,19 @@ func (ai AI) Chat(prompt string) (string, error) {
 			}
 
 			llm = ant.ChatAnth(kwargs...)
+		case "groq":
+			for k, v := range ai.ModelKwargs {
+				kwargs[k] = map[string]interface{}{
+					"model":          ai.ModelType["groq"],
+					"max_tokens":     v.MaxTokens,
+					"temperature":    v.Temperature,
+					"stream":         v.Stream,
+					"stop": v.StopSequences,
+				}
+
+			}
+
+			llm = gro.ChatGroq(kwargs...)
 		default:
 			llm = nil
 		}

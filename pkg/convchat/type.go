@@ -1,4 +1,4 @@
-package convai
+package convchat
 
 import "go.mongodb.org/mongo-driver/mongo"
 

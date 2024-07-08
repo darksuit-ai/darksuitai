@@ -1,16 +1,16 @@
 package darksuitai
 
 import (
-	"github.com/darksuit-ai/darksuitai/internal"
+	_"github.com/darksuit-ai/darksuitai/internal"
 	"github.com/darksuit-ai/darksuitai/internal/prompts"
-	"github.com/darksuit-ai/darksuitai/pkg/ai"
-	"github.com/darksuit-ai/darksuitai/pkg/convai"
+	ai "github.com/darksuit-ai/darksuitai/pkg/chat"
+	convai "github.com/darksuit-ai/darksuitai/pkg/convchat"
 	"github.com/darksuit-ai/darksuitai/types"
 	"go.mongodb.org/mongo-driver/mongo"
 )
 
 // Create an instance of the DarkSuitAgent interface
-var darkSuitAgent internal.DarkSuitAgent = internal.NewDarkSuitAgent()
+//var darkSuitAgent internal.DarkSuitAgent = internal.NewDarkSuitAgent()
 
 // DarkSuitAI is the main struct that users will interact with
 type ChatLLMArgs types.ChatLLMArgs
@@ -147,8 +147,8 @@ type ConvLLM struct {
 func (cargs *ChatLLMArgs) NewLLM() (*LLM, error) {
 
 	// Call the dark suit callback
-	darkSuitCallback := darkSuitAgent.WakeDarkSuitAgent()
-	darkSuitCallback()
+	// darkSuitCallback := darkSuitAgent.WakeDarkSuitAgent()
+	// darkSuitCallback()
 	return &LLM{
 		ai: ai.AI{
 			ChatInstruction: cargs.ChatInstruction,
@@ -162,8 +162,8 @@ func (cargs *ChatLLMArgs) NewLLM() (*LLM, error) {
 // NewConvLLM creates a new instance of DarkSuitAI LLM
 func (cargs *ChatLLMArgs) NewConvLLM() (*ConvLLM, error) {
 	// Call the dark suit callback
-	darkSuitCallback := darkSuitAgent.WakeDarkSuitAgent()
-	darkSuitCallback()
+	// darkSuitCallback := darkSuitAgent.WakeDarkSuitAgent()
+	// darkSuitCallback()
 
 	return &ConvLLM{
 		convai: convai.ConvAI{
@@ -182,8 +182,8 @@ func (d *LLM) Chat(prompt string) (string, error) {
 }
 
 // Stream LLM exposes the LLM method for chat stream
-func (d *LLM) Stream(prompt string) (string, error) {
-	return d.ai.Chat(prompt)
+func (d *LLM) Stream(prompt string) <-chan string {
+	return d.ai.Stream(prompt)
 }
 
 // Chat ConvLLM exposes the LLM method for conversational chat
@@ -192,6 +192,6 @@ func (d *ConvLLM) Chat(prompt string) (string, error) {
 }
 
 // Stream ConvLLM exposes the LLM method for conversational chat stream
-func (d *ConvLLM) Stream(prompt string) (string, error) {
-	return d.convai.Chat(prompt)
+func (d *ConvLLM) Stream(prompt string)  <-chan string  {
+	return d.convai.Stream(prompt)
 }
