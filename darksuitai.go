@@ -19,6 +19,7 @@ type ChatLLMArgs types.ChatLLMArgs
 func NewChatLLMArgs() *ChatLLMArgs {
 
 	return &ChatLLMArgs{
+		ChatSystemInstruction: []byte(``),
 		ChatInstruction: prompts.PromptTemplate,
 		PromptKeys:      make(map[string][]byte),
 		ModelType:       make(map[string]string),
@@ -36,6 +37,24 @@ func NewChatLLMArgs() *ChatLLMArgs {
 			},
 		},
 	}
+}
+
+
+/*
+	SetChatSystemInstruction sets the system-level instruction in ChatLLMArgs.
+
+This method allows you to define the overarching system prompt that will guide the chat model's behavior.
+
+Example:
+
+args := darksuitAI.NewChatLLMArgs()
+
+args.SetChatSystemInstruction([]byte("Your system prompt goes here"))
+
+In this example, the byte slice containing the system prompt is set, which will be used by the chat model to maintain context and behavior.
+*/
+func (args *ChatLLMArgs) SetChatSystemInstruction(systemPrompt []byte) {
+	args.ChatSystemInstruction = systemPrompt
 }
 
 /*
@@ -151,6 +170,7 @@ func (cargs *ChatLLMArgs) NewLLM() (*LLM, error) {
 	// darkSuitCallback()
 	return &LLM{
 		ai: ai.AI{
+			ChatSystemInstruction: cargs.ChatSystemInstruction,
 			ChatInstruction: cargs.ChatInstruction,
 			PromptKeys:      cargs.PromptKeys,
 			ModelType:       cargs.ModelType,
@@ -167,6 +187,7 @@ func (cargs *ChatLLMArgs) NewConvLLM() (*ConvLLM, error) {
 
 	return &ConvLLM{
 		convai: convai.ConvAI{
+			ChatSystemInstruction: cargs.ChatSystemInstruction,
 			ChatInstruction: cargs.ChatInstruction,
 			PromptKeys:      cargs.PromptKeys,
 			ModelType:       cargs.ModelType,

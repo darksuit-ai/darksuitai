@@ -57,6 +57,6 @@ func (ai AI) Stream(prompt string) <-chan string {
 	promptMap := ai.PromptKeys
 	promptMap["query"] = []byte(prompt)
 	promptTemplate := utilities.CustomFormat(ai.ChatInstruction, promptMap)
-	respChan := llm.StreamChat(string(promptTemplate), "")
+	respChan := llm.StreamChat(string(promptTemplate), string(ai.ChatSystemInstruction))
 	return respChan
 }

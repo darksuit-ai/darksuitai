@@ -58,6 +58,6 @@ func (ai AI) Chat(prompt string) (string, error) {
 	promptMap := ai.PromptKeys
 	promptMap["query"] = []byte(prompt)
 	promptTemplate := utilities.CustomFormat(ai.ChatInstruction, promptMap)
-	resp, err := llm.StreamCompleteChat(string(promptTemplate), "")
+	resp, err := llm.StreamCompleteChat(string(promptTemplate), string(ai.ChatSystemInstruction))
 	return resp, err
 }
