@@ -301,7 +301,5 @@ func StreamClient(req types.ChatArgs, chunkchan chan string) error {
 			chunkchan <- chunk.Choices[0].Delta.Content
 		}
 	}
-	// Close the channel after sending all words
-	defer close(chunkchan)
 	return nil
 }

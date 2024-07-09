@@ -100,6 +100,7 @@ func (params OAIChatArgs) StreamChat(prompt string, system string) <-chan string
 	chunkchan := make(chan string)
 
 	go func() {
+		defer close(chunkchan)
 		err := StreamClient(params.ChatArgs, chunkchan)
 		if err != nil {
 			chunkchan <- err.Error()
