@@ -1,4 +1,4 @@
-package openai
+package groq
 
 import "github.com/darksuit-ai/darksuitai/internal/llms/groq/types"
 
