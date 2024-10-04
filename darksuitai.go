@@ -36,9 +36,44 @@ func NewChatLLMArgs() *ChatLLMArgs {
 				StopSequences: []string{},
 			},
 		},
+		APIKey: []byte(``),
 	}
 }
 
+
+/*
+	SetChatSystemInstruction sets the system-level instruction in ChatLLMArgs.
+
+This method allows you to define the overarching system prompt that will guide the chat model's behavior.
+
+Example:
+
+args := darksuitAI.NewChatLLMArgs()
+
+args.SetChatSystemInstruction([]byte("Your system prompt goes here"))
+
+In this example, the byte slice containing the system prompt is set, which will be used by the chat model to maintain context and behavior.
+*/
+func (args *ChatLLMArgs) SetChatSystemInstruction(systemPrompt []byte) {
+	args.ChatSystemInstruction = systemPrompt
+}
+
+/*
+	AddAPIKey sets the API key for the ChatLLMArgs instance.
+
+This method allows you to securely store the API key required for authenticating requests to the chat model service.
+
+Example:
+
+args := darksuitAI.NewChatLLMArgs()
+
+args.AddAPIKey([]byte("your-api-key"))
+
+In this example, the byte slice containing the API key is set, enabling the chat model to authenticate and process requests.
+*/
+func (args *ChatLLMArgs) AddAPIKey(apiKey []byte) {
+	args.APIKey = apiKey
+}
 
 /*
 	SetChatSystemInstruction sets the system-level instruction in ChatLLMArgs.
@@ -175,6 +210,7 @@ func (cargs *ChatLLMArgs) NewLLM() (*LLM, error) {
 			PromptKeys:      cargs.PromptKeys,
 			ModelType:       cargs.ModelType,
 			ModelKwargs:     cargs.ModelKwargs,
+			APIKey: cargs.APIKey,
 		},
 	}, nil
 }
@@ -193,6 +229,7 @@ func (cargs *ChatLLMArgs) NewConvLLM() (*ConvLLM, error) {
 			ModelType:       cargs.ModelType,
 			MongoDB:         cargs.MongoDB,
 			ModelKwargs:     cargs.ModelKwargs,
+			APIKey: cargs.APIKey,
 		},
 	}, nil
 }

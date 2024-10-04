@@ -100,7 +100,7 @@ If you don't have a .env file, create one in the root directory of your project.
 	}
 }
 
-func Client(req types.ChatArgs) (string, error) {
+func Client(apiKey string, req types.ChatArgs) (string, error) {
 	checkEnvVar()
 	// Wait for rate limiter
 	//rateLimiter.Wait()
@@ -116,9 +116,12 @@ func Client(req types.ChatArgs) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("error creating HTTP request: %w", err)
 	}
+	if apiKey == "" {
+		apiKey = os.Getenv("OPENAI_API_KEY")
+	}
 
 	// Set request headers
-	request.Header.Set("Authorization", fmt.Sprintf("Bearer %s", os.Getenv("OPENAI_API_KEY")))
+	request.Header.Set("Authorization", fmt.Sprintf("Bearer %s", apiKey))
 	request.Header.Set("Content-Type", "application/json")
 
 	// Make the request with retry logic
@@ -139,7 +142,7 @@ func Client(req types.ChatArgs) (string, error) {
 		bodyString := string(bodyBytes)
 
 		// Print the response body
-		return bodyString,nil
+		return bodyString, nil
 	}
 	// Check if the response status indicates an error
 	if resp.StatusCode >= 400 {
@@ -161,7 +164,7 @@ func Client(req types.ChatArgs) (string, error) {
 	return content, nil
 }
 
-func StreamCompleteClient(req types.ChatArgs) (string, error) {
+func StreamCompleteClient(apiKey string, req types.ChatArgs) (string, error) {
 	checkEnvVar()
 	// Marshal the payload to JSON
 	reqJsonPayload, err := json.Marshal(req)
@@ -175,12 +178,16 @@ func StreamCompleteClient(req types.ChatArgs) (string, error) {
 		return "", fmt.Errorf("error creating HTTP request: %w", err)
 	}
 
+	if apiKey == "" {
+		apiKey = os.Getenv("OPENAI_API_KEY")
+	}
+
 	// Set request headers
 	request.Header.Set("Accept", "text/event-stream")
 	request.Header.Set("Content-Type", "application/json")
 	request.Header.Set("Cache-Control", "no-cache")
 	request.Header.Set("Connection", "keep-alive")
-	request.Header.Set("Authorization", fmt.Sprintf("Bearer %s", os.Getenv("OPENAI_API_KEY")))
+	request.Header.Set("Authorization", fmt.Sprintf("Bearer %s", apiKey))
 
 	// Make the request
 	resp, err := retryRequest(httpClient, request)
@@ -238,7 +245,7 @@ func StreamCompleteClient(req types.ChatArgs) (string, error) {
 	return finalResult, nil
 }
 
-func StreamClient(req types.ChatArgs, chunkchan chan string) error {
+func StreamClient(apiKey string, req types.ChatArgs, chunkchan chan string) error {
 	checkEnvVar()
 	// Marshal the payload to JSON
 	reqJsonPayload, err := json.Marshal(req)
@@ -251,13 +258,15 @@ func StreamClient(req types.ChatArgs, chunkchan chan string) error {
 	if err != nil {
 		return err
 	}
-
+	if apiKey == "" {
+		apiKey = os.Getenv("OPENAI_API_KEY")
+	}
 	// Set request headers
 	request.Header.Set("Accept", "text/event-stream")
 	request.Header.Set("Content-Type", "application/json")
 	request.Header.Set("Cache-Control", "no-cache")
 	request.Header.Set("Connection", "keep-alive")
-	request.Header.Set("Authorization", fmt.Sprintf("Bearer %s", os.Getenv("OPENAI_API_KEY")))
+	request.Header.Set("Authorization", fmt.Sprintf("Bearer %s", apiKey))
 
 	// Make the request
 	resp, err := retryRequest(httpClient, request)
@@ -310,7 +319,5 @@ func StreamClient(req types.ChatArgs, chunkchan chan string) error {
 		}
 
 	}
-	// Close the channel after sending all words
-	defer close(chunkchan)
 	return nil
 }

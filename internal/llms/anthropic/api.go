@@ -41,7 +41,7 @@ func ChatAnth(kwargs ...map[string]interface{}) AnthChatArgs {
 }
 
 // ChatClient sends a prompt to the chat client and returns the response.
-func (args AnthChatArgs) Chat(prompt string, assistant string) (string, error) {
+func (args AnthChatArgs) Chat(apiKey string, prompt string, assistant string) (string, error) {
 	if args.ChatArgs.Messages == nil {
 		args.ChatArgs.Messages = make([]types.Message, 0)
 	}
@@ -53,14 +53,14 @@ func (args AnthChatArgs) Chat(prompt string, assistant string) (string, error) {
 	}
 
 	args.Stream = false
-	response, err := Client(args.ChatArgs)
+	response, err := Client(apiKey, args.ChatArgs)
 	if err != nil {
 		return "", err
 	}
 	return response, err
 }
 
-func (params AnthChatArgs) StreamCompleteChat(prompt string, system string) (string, error) {
+func (params AnthChatArgs) StreamCompleteChat(apiKey string, prompt string, system string) (string, error) {
 	if params.ChatArgs.Messages == nil {
 		params.ChatArgs.Messages = make([]types.Message, 0)
 	}
@@ -73,7 +73,7 @@ func (params AnthChatArgs) StreamCompleteChat(prompt string, system string) (str
 
 	params.Stream = true
 
-	response, err := StreamCompleteClient(params.ChatArgs)
+	response, err := StreamCompleteClient(apiKey, params.ChatArgs)
 
 	if err != nil {
 		return "", err
@@ -81,7 +81,7 @@ func (params AnthChatArgs) StreamCompleteChat(prompt string, system string) (str
 	return response, err
 }
 
-func (params AnthChatArgs) StreamChat(prompt string, system string) <-chan string {
+func (params AnthChatArgs) StreamChat(apiKey string, prompt string, system string) <-chan string {
 	if params.ChatArgs.Messages == nil {
 		params.ChatArgs.Messages = make([]types.Message, 0)
 	}
@@ -96,7 +96,8 @@ func (params AnthChatArgs) StreamChat(prompt string, system string) <-chan strin
 	chunkchan := make(chan string)
 
 	go func() {
-		err := StreamClient(params.ChatArgs, chunkchan)
+		defer close(chunkchan)
+		err := StreamClient(apiKey,params.ChatArgs, chunkchan)
 		if err != nil {
 			chunkchan <- err.Error()
 		}

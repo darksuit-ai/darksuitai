@@ -41,7 +41,7 @@ func ChatOAI(kwargs ...map[string]interface{}) OAIChatArgs {
 }
 
 // Chat sends a prompt to the chat client and returns the response.
-func (args OAIChatArgs) Chat(prompt string, assistant string) (string, error) {
+func (args OAIChatArgs) Chat(apiKey string, prompt string, assistant string) (string, error) {
 	if args.ChatArgs.Messages == nil {
 		args.ChatArgs.Messages = make([]types.Message, 0)
 	}
@@ -53,7 +53,7 @@ func (args OAIChatArgs) Chat(prompt string, assistant string) (string, error) {
 	}
 
 	args.Stream = false
-	response, err := Client(args.ChatArgs)
+	response, err := Client(apiKey,args.ChatArgs)
 	if err != nil {
 		return "", err
 	}
@@ -61,7 +61,7 @@ func (args OAIChatArgs) Chat(prompt string, assistant string) (string, error) {
 }
 
 // StreamCompleteChat sends a prompt to the stream complete chat client and returns the response.
-func (params OAIChatArgs) StreamCompleteChat(prompt string, system string) (string, error) {
+func (params OAIChatArgs) StreamCompleteChat(apiKey string, prompt string, system string) (string, error) {
 
 	if params.ChatArgs.Messages == nil {
 		params.ChatArgs.Messages = make([]types.Message, 0)
@@ -75,7 +75,7 @@ func (params OAIChatArgs) StreamCompleteChat(prompt string, system string) (stri
 
 	params.Stream = true
 
-	response, err := StreamCompleteClient(params.ChatArgs)
+	response, err := StreamCompleteClient(apiKey, params.ChatArgs)
 
 	if err != nil {
 		return "", err
@@ -84,7 +84,7 @@ func (params OAIChatArgs) StreamCompleteChat(prompt string, system string) (stri
 }
 
 // StreamChat sends a prompt to the stream chat client and returns the response.
-func (params OAIChatArgs) StreamChat(prompt string, system string) <-chan string {
+func (params OAIChatArgs) StreamChat(apiKey string, prompt string, system string) <-chan string {
 
 	if params.ChatArgs.Messages == nil {
 		params.ChatArgs.Messages = make([]types.Message, 0)
@@ -100,7 +100,8 @@ func (params OAIChatArgs) StreamChat(prompt string, system string) <-chan string
 	chunkchan := make(chan string)
 
 	go func() {
-		err := StreamClient(params.ChatArgs, chunkchan)
+		defer close(chunkchan)
+		err := StreamClient(apiKey, params.ChatArgs, chunkchan)
 		if err != nil {
 			chunkchan <- err.Error()
 		}

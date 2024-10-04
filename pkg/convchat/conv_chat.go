@@ -46,6 +46,6 @@ func (ai ConvAI) Chat(prompt string) (string, error) {
 	promptMap["query"] = []byte(prompt)
 	promptMap["chat_history"] = []byte(mongodb.RetrieveMemoryWithK(ai.MongoDB, "", 6))
 	promptTemplate := utilities.CustomFormat(ai.ChatInstruction, promptMap)
-	resp, err := llm.StreamCompleteChat(string(promptTemplate), string(ai.ChatSystemInstruction))
+	resp, err := llm.StreamCompleteChat(string(ai.APIKey),string(promptTemplate), string(ai.ChatSystemInstruction))
 	return resp, err
 }
