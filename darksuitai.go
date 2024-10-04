@@ -42,23 +42,6 @@ func NewChatLLMArgs() *ChatLLMArgs {
 
 
 /*
-	SetChatSystemInstruction sets the system-level instruction in ChatLLMArgs.
-
-This method allows you to define the overarching system prompt that will guide the chat model's behavior.
-
-Example:
-
-args := darksuitAI.NewChatLLMArgs()
-
-args.SetChatSystemInstruction([]byte("Your system prompt goes here"))
-
-In this example, the byte slice containing the system prompt is set, which will be used by the chat model to maintain context and behavior.
-*/
-func (args *ChatLLMArgs) SetChatSystemInstruction(systemPrompt []byte) {
-	args.ChatSystemInstruction = systemPrompt
-}
-
-/*
 	AddAPIKey sets the API key for the ChatLLMArgs instance.
 
 This method allows you to securely store the API key required for authenticating requests to the chat model service.
