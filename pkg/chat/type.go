@@ -11,4 +11,5 @@ type AI struct {
 		Stream        bool     `json:"stream"`
 		StopSequences []string `json:"stop_sequences"`
 	}
+	APIKey []byte
 }

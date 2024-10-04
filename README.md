@@ -63,13 +63,13 @@ import (
 )
 
 func main() {
-
+	// either add apikey to your .env and darksuit picks it up or pass as argument
 	if err := godotenv.Load(".env"); err != nil {
 		log.Printf("Warning: error loading .env file: %v", err)
 	}
 
 	args := darksuitai.NewChatLLMArgs()
-
+	args.AddAPIKey([]byte(`your-api-key`)) // pass LLM API Key
 	// args.SetChatInstruction([]byte(`Your chat instruction goes here`)) // uncomment to pass your own prompt instruction
 	args.AddPromptKey("year", []byte(`2024`)) // pass variables to your prompt
 	args.SetModelType("openai", "gpt-4o") // set the model
@@ -115,7 +115,7 @@ func main() {
 	databaseName := "your_atabase_name"
 
 	args := darksuitai.NewChatLLMArgs()
-
+	args.AddAPIKey([]byte(`your-api-key`)) // pass LLM API Key
 	// Set up the MongoDB connection URL
 	url := fmt.Sprintf("mongodb://%s:%s@%s:%s/%s?serverSelectionTimeoutMS=5000&authSource=mongo_staging&directConnection=true", user, password, host, port,databaseName)
 

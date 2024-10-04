@@ -36,9 +36,26 @@ func NewChatLLMArgs() *ChatLLMArgs {
 				StopSequences: []string{},
 			},
 		},
+		APIKey: []byte(``),
 	}
 }
 
+/*
+	AddAPIKey sets the API key for the ChatLLMArgs instance.
+
+This method allows you to securely store the API key required for authenticating requests to the chat model service.
+
+Example:
+
+args := darksuitAI.NewChatLLMArgs()
+
+args.AddAPIKey([]byte("your-api-key"))
+
+In this example, the byte slice containing the API key is set, enabling the chat model to authenticate and process requests.
+*/
+func (args *ChatLLMArgs) AddAPIKey(apiKey []byte) {
+	args.APIKey = apiKey
+}
 
 /*
 	SetChatSystemInstruction sets the system-level instruction in ChatLLMArgs.
@@ -175,6 +192,7 @@ func (cargs *ChatLLMArgs) NewLLM() (*LLM, error) {
 			PromptKeys:      cargs.PromptKeys,
 			ModelType:       cargs.ModelType,
 			ModelKwargs:     cargs.ModelKwargs,
+			APIKey: cargs.APIKey,
 		},
 	}, nil
 }
@@ -193,6 +211,7 @@ func (cargs *ChatLLMArgs) NewConvLLM() (*ConvLLM, error) {
 			ModelType:       cargs.ModelType,
 			MongoDB:         cargs.MongoDB,
 			ModelKwargs:     cargs.ModelKwargs,
+			APIKey: cargs.APIKey,
 		},
 	}, nil
 }
