@@ -41,19 +41,19 @@ func ChatAnth(kwargs ...map[string]interface{}) AnthChatArgs {
 }
 
 // ChatClient sends a prompt to the chat client and returns the response.
-func (args AnthChatArgs) Chat(apiKey string, prompt string, assistant string) (string, error) {
-	if args.ChatArgs.Messages == nil {
-		args.ChatArgs.Messages = make([]types.Message, 0)
+func (params AnthChatArgs) Chat(apiKey string, prompt string, system string) (string, error) {
+	if params.ChatArgs.Messages == nil {
+		params.ChatArgs.Messages = make([]types.Message, 0)
 	}
 
 	if prompt != "" {
-		args.ChatArgs.Messages = append(args.ChatArgs.Messages, types.Message{Role: "user", Content: prompt})
+		params.ChatArgs.Messages = append(params.ChatArgs.Messages, types.Message{Role: "user", Content: prompt})
 	} else {
-		args.ChatArgs.Messages = append(args.ChatArgs.Messages, types.Message{Role: "user", Content: prompt}, types.Message{Role: "assistant", Content: assistant})
+		params.ChatArgs.Messages = append(params.ChatArgs.Messages, types.Message{Role: "user", Content: system + "\n" + prompt})
 	}
 
-	args.Stream = false
-	response, err := Client(apiKey, args.ChatArgs)
+	params.Stream = false
+	response, err := Client(apiKey, params.ChatArgs)
 	if err != nil {
 		return "", err
 	}
@@ -68,7 +68,7 @@ func (params AnthChatArgs) StreamCompleteChat(apiKey string, prompt string, syst
 	if system == "" {
 		params.ChatArgs.Messages = append(params.ChatArgs.Messages, types.Message{Role: "user", Content: prompt})
 	} else {
-		params.ChatArgs.Messages = append(params.ChatArgs.Messages, types.Message{Role: "user", Content: prompt}, types.Message{Role: "system", Content: system})
+		params.ChatArgs.Messages = append(params.ChatArgs.Messages, types.Message{Role: "user", Content: system + "\n" + prompt})
 	}
 
 	params.Stream = true
@@ -89,7 +89,7 @@ func (params AnthChatArgs) StreamChat(apiKey string, prompt string, system strin
 	if system == "" {
 		params.ChatArgs.Messages = append(params.ChatArgs.Messages, types.Message{Role: "user", Content: prompt})
 	} else {
-		params.ChatArgs.Messages = append(params.ChatArgs.Messages, types.Message{Role: "user", Content: prompt}, types.Message{Role: "system", Content: system})
+		params.ChatArgs.Messages = append(params.ChatArgs.Messages, types.Message{Role: "user", Content: system + "\n" + prompt})
 	}
 
 	params.Stream = true
