@@ -83,7 +83,7 @@ func (params AnthChatArgs) StreamChat(apiKey string, prompt string, system strin
 	if params.ChatArgs.Messages == nil {
 		params.ChatArgs.Messages = make([]types.Message, 0)
 	}
-	
+
 	params.ChatArgs.Messages = append(params.ChatArgs.Messages, types.Message{Role: "user", Content: prompt})
 	if system != "" {
 	params.ChatArgs.System = system
