@@ -46,10 +46,9 @@ func (params AnthChatArgs) Chat(apiKey string, prompt string, system string) (st
 		params.ChatArgs.Messages = make([]types.Message, 0)
 	}
 
-	if prompt != "" {
-		params.ChatArgs.Messages = append(params.ChatArgs.Messages, types.Message{Role: "user", Content: prompt})
-	} else {
-		params.ChatArgs.Messages = append(params.ChatArgs.Messages, types.Message{Role: "user", Content: system + "\n" + prompt})
+	params.ChatArgs.Messages = append(params.ChatArgs.Messages, types.Message{Role: "user", Content: prompt})
+	if system != "" {
+	params.ChatArgs.System = system
 	}
 
 	params.Stream = false
@@ -65,10 +64,9 @@ func (params AnthChatArgs) StreamCompleteChat(apiKey string, prompt string, syst
 		params.ChatArgs.Messages = make([]types.Message, 0)
 	}
 
-	if system == "" {
-		params.ChatArgs.Messages = append(params.ChatArgs.Messages, types.Message{Role: "user", Content: prompt})
-	} else {
-		params.ChatArgs.Messages = append(params.ChatArgs.Messages, types.Message{Role: "user", Content: system + "\n" + prompt})
+	params.ChatArgs.Messages = append(params.ChatArgs.Messages, types.Message{Role: "user", Content: prompt})
+	if system != "" {
+	params.ChatArgs.System = system
 	}
 
 	params.Stream = true
@@ -86,10 +84,9 @@ func (params AnthChatArgs) StreamChat(apiKey string, prompt string, system strin
 		params.ChatArgs.Messages = make([]types.Message, 0)
 	}
 
-	if system == "" {
-		params.ChatArgs.Messages = append(params.ChatArgs.Messages, types.Message{Role: "user", Content: prompt})
-	} else {
-		params.ChatArgs.Messages = append(params.ChatArgs.Messages, types.Message{Role: "user", Content: system + "\n" + prompt})
+	params.ChatArgs.Messages = append(params.ChatArgs.Messages, types.Message{Role: "user", Content: prompt})
+	if system != "" {
+	params.ChatArgs.System = system
 	}
 
 	params.Stream = true
