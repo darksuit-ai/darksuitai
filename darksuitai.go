@@ -216,6 +216,25 @@ func (cargs *ChatLLMArgs) NewConvLLM() (*ConvLLM, error) {
 	}, nil
 }
 
+// NewSuitedAgent creates a new instance of DarkSuitAI Agent
+func (cargs *ChatLLMArgs) NewSuitedAgent() (*ConvLLM, error) {
+	// Call the dark suit callback
+	// darkSuitCallback := darkSuitAgent.WakeDarkSuitAgent()
+	// darkSuitCallback()
+
+	return &ConvLLM{
+		convai: convai.ConvAI{
+			ChatSystemInstruction: cargs.ChatSystemInstruction,
+			ChatInstruction: cargs.ChatInstruction,
+			PromptKeys:      cargs.PromptKeys,
+			ModelType:       cargs.ModelType,
+			MongoDB:         cargs.MongoDB,
+			ModelKwargs:     cargs.ModelKwargs,
+			APIKey: cargs.APIKey,
+		},
+	}, nil
+}
+
 // Chat LLM exposes the LLM method for chat
 func (d *LLM) Chat(prompt string) (string, error) {
 	return d.ai.Chat(prompt)

@@ -24,6 +24,7 @@ type ErrorResponse struct {
 type ChatArgs struct {
 	Model         string      `json:"model"`
 	MaxTokens     int         `json:"max_tokens"`
+	System        string      `json:"system"`
 	Messages      []Message   `json:"messages"`
 	Temperature   float64     `json:"temperature"`
 	Stream        bool        `json:"stream,omitempty"`
