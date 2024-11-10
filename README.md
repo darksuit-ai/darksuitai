@@ -155,6 +155,92 @@ func main() {
 Agents allow an LLM autonomy over how a task is accomplished. Agents make decisions about which Actions to take, then take that Action, observe the result, and repeat until the task is complete. DarkSuitAI supercedes all other agentic frameworks/library through it's AI self-reflect action control.
 
 
+## 🛠️ Tool
+
+Tools in agentic AI are essential components that allow AI agents to interact with their environment and perform specific tasks. 
+In the context of agentic AI, tools are functions or modules that the AI can utilize to achieve its goals. 
+These tools can range from simple data processing functions to complex algorithms that enable decision-making and problem-solving. 
+By leveraging tools, AI agents can extend their capabilities beyond their core functionalities, allowing them to adapt to various scenarios and challenges. 
+In the DarkSuitAI framework, tools are defined using the `NewTool` function, which allows developers to create custom tools tailored to specific needs. 
+These tools are then registered in the `ToolNodes` map, making them accessible to the AI agents for execution during their task completion processes.
+
+### Creating a tool and testing it
+
+To create the `a Tool`, you can use the `NewTool` function provided by the DarkSuitAI framework. Here's a sample code snippet to create and register the `a Tool`:
+```go
+func googleSearch(query string)(string,[]interface{}, error){
+	// your logic
+}
+testingTool := tsk.NewTool(
+    "google search", // tool name
+    "this tool is useful for performing web search using Google.", // tool description
+    func(query string, metaData []interface{}) (string, []interface{}, error) {
+        return googleSearch(query string)
+    },
+)
+
+// Register the google search Tool in the ToolNodes map
+tsk.ToolNodes["google search"] = testingTool
+result,toolMeta,_:=tsk.ToolNodes["google search"].ToolFunc("about the US",nil)
+fmt.Printf("%s,%v",result,toolMeta)
+
+```
+### Building an agent
+```go
+
+package main
+
+import (
+	"fmt"
+	"context"
+	"log"
+	"github.com/darksuit-ai/darksuitai"
+)
+
+func main() {
+	databaseName := "your_database_name"
+	databaseURL := "your_database_url either mongodb+srv:// or mongodb://"
+	db := NewMongoChatMemory(data,databaseName) // Get the database pointer
+
+	weatherReportTool :=darksuitai.NewTool(
+		"weather report",
+		"",
+		func(query, toolName string, metaData map[string]interface{}) (string, []interface{},error) {
+			// your API call to weather API like openweather
+			rawWeatherResultFromAPI := `{"location": "San Francisco", "weather": "sunny", "high": "68°F", "low": "54°F"}`
+			return "The weather in San Francisco is sunny with a high of 68°F and a low of 54°F.", []interface{}{rawWeatherResultFromAPI}, nil
+		},
+	)
+
+	darksuitai.ToolNodes = append(darksuitai.ToolNodes, weatherReportTool)
+
+	args := darksuitai.NewChatLLMArgs()
+	args.AddAPIKey([]byte(`your-api-key`)) // pass LLM API Key
+
+	// args.SetChatInstruction([]byte(`Your chat instruction goes here`)) // uncomment to pass your own prompt instruction
+	args.SetMongoDBChatMemory(db) // set the database
+	args.AddPromptKey("year", []byte(`2024`)) // pass variables to your prompt
+	args.SetModelType("openai", "gpt-4o") // set the model
+	args.AddModelKwargs(1000, 0.8, true, []string{"\nObservation:"}) // set model keyword arguments
+
+	agent,err := args.NewSuitedAgent()
+	if err != nil{
+		// handle the error as you wish
+	}
+	err = agent.Program(3,true)
+	if err != nil{
+		// handle the error as you wish
+	}
+	resp,_,err:=agent.Chat("hello what is the current weather?","")
+	if err != nil{
+		// handle the error as you wish
+	}
+	fmt.Println(resp)
+
+}
+
+```
+
 ## 💁 Contributing
 
 As an open-source project in a rapidly developing field, we are extremely open to contributions, whether it be in the form of a new feature, improved infrastructure, or better documentation.

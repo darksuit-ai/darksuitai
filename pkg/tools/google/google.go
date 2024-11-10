@@ -12,7 +12,7 @@ import (
 	"time"
 
 	exp "github.com/darksuit-ai/darksuitai/internal/exceptions"
-	bst "github.com/darksuit-ai/darksuitai/pkg/tools"
+
 )
 
 var re = regexp.MustCompile(`[^a-zA-Z0-9]`)
@@ -83,8 +83,12 @@ func (w *GoogleSerperAPIWrapper) Run(query string, kwargs map[string]interface{}
 	finalResult := w.parseResults(results)
 	searchResp := strings.ReplaceAll(finalResult, "...", ".")
 	searchResp = strings.ReplaceAll(searchResp, " ... ", ".")
-	finalResponse := searchResp + "\n\nI will also notify the user that I have appended images in my search response."
-	return &finalResponse, nil
+	searchResp = strings.ReplaceAll(searchResp, " ... ", ".")
+	if searchResp != "No Google Search Result was found" {
+		searchResp += "\n\nI will also notify the user that I have appended images in my search response."
+		return &searchResp, nil
+	}
+	return &searchResp, nil
 }
 
 func (w *GoogleSerperAPIWrapper) parseSnippets(results map[string]interface{}) string {
@@ -205,7 +209,7 @@ func (w *GoogleSerperAPIWrapper) googleSerperAPIResults(
 	return searchResults
 }
 
-func googleSearchAndImages(query string, toolsMeta map[string]interface{}) (string, []interface{}) {
+func GoogleSearchAndImages(query string, toolsMeta map[string]interface{}) (string, []interface{},error) {
 	var wg sync.WaitGroup
 	var searchResult *string
 	var imgResult *[]string
@@ -229,25 +233,6 @@ func googleSearchAndImages(query string, toolsMeta map[string]interface{}) (stri
 
 	imgResultInterface[0] = append(imgResultInterface, *imgResult)
 
-	return *searchResult, imgResultInterface
+	return *searchResult, imgResultInterface, nil
 }
 
-func Google_tool(description string) map[string]bst.BaseTool {
-	if description == "" {
-		description = `This tool is useful ONLY in the following circumstances:
-	- user is asking about recent/current events or something that requires real-time information (sports scores, news, latest happenings/events, any information deemed recent; beyond your knowledge cutoff year. Recently, the currently year is %d)
-	- When you need to look up information about topics, these topics can be a wide range of topics especially about humans, stocks e.g who won the superbowl? is Jim Simons still alive? who is in scotland's eur group this year?.
-	- user is asking about some term you are totally unfamiliar with (it might be new)
-	- user explicitly asks you to browse, show images or provide links to references
-Always rephrase the input word in the best search term to get results.`
-	}
-	return map[string]bst.BaseTool{
-		"Google Search": {
-			Name:        "Google Search",
-			Description: description,
-			ToolFunc: func(query string, meta []interface{}) (string, []interface{}) {
-				return googleSearchAndImages(query, nil)
-			},
-		},
-	}
-}

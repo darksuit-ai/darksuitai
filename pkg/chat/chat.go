@@ -1,9 +1,12 @@
 package chat
 
 import (
+	"fmt"
+
 	ant "github.com/darksuit-ai/darksuitai/internal/llms/anthropic"
-	oai "github.com/darksuit-ai/darksuitai/internal/llms/openai"
 	gro "github.com/darksuit-ai/darksuitai/internal/llms/groq"
+	oai "github.com/darksuit-ai/darksuitai/internal/llms/openai"
+	"github.com/darksuit-ai/darksuitai/internal/prompts"
 	"github.com/darksuit-ai/darksuitai/internal/utilities"
 )
 
@@ -57,6 +60,14 @@ func (ai AI) Chat(prompt string) (string, error) {
 	}
 	promptMap := ai.PromptKeys
 	promptMap["query"] = []byte(prompt)
+	if ai.ChatInstruction == nil{
+		internalPrompts, err := prompts.LoadPromptConfigs()
+		if err != nil {
+			return "", fmt.Errorf("error loading config: %v", err)
+		}
+
+		ai.ChatInstruction = internalPrompts.CHATINSTRUCTION
+	}
 	promptTemplate := utilities.CustomFormat(ai.ChatInstruction, promptMap)
 	resp, err := llm.StreamCompleteChat(string(ai.APIKey),string(promptTemplate), string(ai.ChatSystemInstruction))
 	return resp, err

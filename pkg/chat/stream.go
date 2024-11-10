@@ -1,12 +1,14 @@
 package chat
 
 import (
+	"fmt"
+
 	ant "github.com/darksuit-ai/darksuitai/internal/llms/anthropic"
-	oai "github.com/darksuit-ai/darksuitai/internal/llms/openai"
 	gro "github.com/darksuit-ai/darksuitai/internal/llms/groq"
+	oai "github.com/darksuit-ai/darksuitai/internal/llms/openai"
+	"github.com/darksuit-ai/darksuitai/internal/prompts"
 	"github.com/darksuit-ai/darksuitai/internal/utilities"
 )
-
 
 func (ai AI) Stream(prompt string) <-chan string {
 	kwargs := make([]map[string]interface{}, 5)
@@ -40,11 +42,11 @@ func (ai AI) Stream(prompt string) <-chan string {
 		case "groq":
 			for k, v := range ai.ModelKwargs {
 				kwargs[k] = map[string]interface{}{
-					"model":          ai.ModelType["groq"],
-					"max_tokens":     v.MaxTokens,
-					"temperature":    v.Temperature,
-					"stream":         v.Stream,
-					"stop": v.StopSequences,
+					"model":       ai.ModelType["groq"],
+					"max_tokens":  v.MaxTokens,
+					"temperature": v.Temperature,
+					"stream":      v.Stream,
+					"stop":        v.StopSequences,
 				}
 
 			}
@@ -56,7 +58,17 @@ func (ai AI) Stream(prompt string) <-chan string {
 	}
 	promptMap := ai.PromptKeys
 	promptMap["query"] = []byte(prompt)
+	if ai.ChatInstruction == nil {
+		internalPrompts, err := prompts.LoadPromptConfigs()
+		if err != nil {
+		errorChan := make(chan string, 1)
+		errorChan <- fmt.Sprintf("error loading config: %v", err)
+		return errorChan
+		}
+
+		ai.ChatInstruction = internalPrompts.CHATINSTRUCTION
+	}
 	promptTemplate := utilities.CustomFormat(ai.ChatInstruction, promptMap)
-	respChan := llm.StreamChat(string(ai.APIKey),string(promptTemplate), string(ai.ChatSystemInstruction))
+	respChan := llm.StreamChat(string(ai.APIKey), string(promptTemplate), string(ai.ChatSystemInstruction))
 	return respChan
 }
