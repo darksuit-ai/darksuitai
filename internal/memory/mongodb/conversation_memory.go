@@ -2,11 +2,11 @@ package mongodb
 
 import (
 	"context"
-	exp "github.com/darksuit-ai/darksuitai/internal/exceptions"
-	utl "github.com/darksuit-ai/darksuitai/internal/utilities"
 	"sort"
 	"strings"
 	"time"
+
+	utl "github.com/darksuit-ai/darksuitai/internal/utilities"
 
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
@@ -14,9 +14,16 @@ import (
 	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
+// ChatMemoryCollectionInterface defines the required methods for managing chat memory operations
+type ChatMemoryCollectionInterface interface {
+	AddConversationToMemory(sessionId, prompt, aiMessage string) error
+	RetrieveMemoryWithK(sessionId string, k int64) (string, error)
+}
+
 type dataObject struct {
-	UserPrompt string `bson:"user_prompt" json:"user_prompt"`
-	AIResponse string `bson:"ai_response" json:"ai_response"`
+	UserPrompt       string `bson:"user_prompt" json:"user_prompt"`
+	DarksuitResponse string `bson:"darksuit_response" json:"darksuit_response"`
+	ToolUsed         string `bson:"tool_used,omitempty" json:"tool_used,omitempty"`
 }
 
 type convData struct {
@@ -26,13 +33,25 @@ type convData struct {
 
 type convHistory struct {
 	ID        primitive.ObjectID `bson:"_id,omitempty"`
-	UserId    string             `bson:"userId" json:"userId"`
+	SessionId string             `bson:"sessionId" json:"sessionId"`
 	History   convData           `bson:"History" json:"History"`
 	TimeStamp string             `json:"timestamp"`
 }
 
+// MongoCollection implements ChatMemoryCollectionInterface
+type MongoCollection struct {
+	collection *mongo.Collection
+}
+
+// NewMongoCollection creates a new MongoCollection instance
+func NewMongoCollection(collection *mongo.Collection) *MongoCollection {
+	return &MongoCollection{
+		collection: collection,
+	}
+}
+
 /*
-This function creates a new memory entry in a MongoDB collection for a specified user.
+This function creates a new memory entry in a MongoDB collection.
 
 Args:
 
@@ -42,27 +61,27 @@ Args:
 
 The function trims off a specified string from the ai_message before storing it.
 */
-func AddConversationToMemory(db *mongo.Database, userId string, prompt string, ai_message string, toolsResponse string) {
-	var chatMemory = db.Collection("darksuitaichatmemory")
-	timeStamp := time.Now()
+func (mc *MongoCollection) AddConversationToMemory(sessionId, prompt, aiMessage string) error {
+
 	// Create a new convHistory struct with the provided data
 	history := convHistory{
-		UserId: userId,
+		SessionId: sessionId,
 		History: convData{
 			Type: "ai",
 			Data: dataObject{
-				UserPrompt: prompt,
-				AIResponse: ai_message,
+				UserPrompt:       prompt,
+				DarksuitResponse: aiMessage,
 			},
 		},
-		TimeStamp: timeStamp.Format("2006-01-02T15:04:05.000000"), // Get the current timestamp in RFC3339 format
+		TimeStamp: time.Now().UTC().Format(time.RFC3339), // Get the current timestamp in RFC3339 format
 	}
 
 	// Insert the data into the collection
-	_, dbErr := chatMemory.InsertOne(context.Background(), history)
+	_, dbErr := mc.collection.InsertOne(context.Background(), history)
 	if dbErr != nil {
-		exp.Loggers.System.Warn(dbErr)
+		return dbErr
 	}
+	return nil
 }
 
 /*
@@ -80,25 +99,17 @@ Returns:
 
 	list: The most recent matching entries in the collection, or None if no match is found or if the entries are older than 1 minute.
 */
-func RetrieveMemoryWithK(db *mongo.Database, userId string, k int64) string {
-	var chatMemory = db.Collection("darksuitaichatmemory")
-	// Query the collection for entries where the userId matches and the timestamp is within the last 15 minute
-	//minTime := time.Now().Add(-15 * time.Minute)
-	// Format the time to the desired output format
-	//formattedTime := minTime.Format("2006-01-02T15:04:05.000000")
+func (mc *MongoCollection) RetrieveMemoryWithK(sessionId string, k int64) (string, error) {
 
-	// Construct a MongoDB query to find documents where the userId matches and the timestamp is greater than or equal to the formattedTime
-	//query := bson.M{"userId": userId, "timestamp": bson.M{"$gte": formattedTime}}
-	query := bson.M{"userId": userId}
+	// Query the collection for entries where the sessionId matches and the timestamp is within the last 15 minute
+	query := bson.M{"sessionId": sessionId}
 
-	// Find the documents, sort them by timestamp in ascending order, and limit to 'k' results
-	// IMPORTANT keep value as -1
+	// Find the documents, sort them by timestamp in descending order, and limit to 'k' results
 	opts := options.Find().SetSort(bson.D{primitive.E{Key: "timestamp", Value: -1}}).SetLimit(k)
-
 	// Sort the results in descending order by timestamp and retrieve the first k results
-	cur, dbErr := chatMemory.Find(context.Background(), query, opts)
+	cur, dbErr := mc.collection.Find(context.Background(), query, opts)
 	if dbErr != nil {
-		exp.Loggers.System.Warn(dbErr)
+		return "", dbErr
 	}
 	// Close the MongoDB cursor after iterating over the results
 	defer cur.Close(context.Background())
@@ -111,13 +122,12 @@ func RetrieveMemoryWithK(db *mongo.Database, userId string, k int64) string {
 		var doc convHistory
 		err := cur.Decode(&doc)
 		if err != nil {
-			exp.Loggers.System.Warn(dbErr)
+			return "", dbErr
 		}
 
-		chatHistory = append(chatHistory, utl.ConcatWords([]byte(``), []byte(`AIMessage=(`), []byte(doc.History.Data.AIResponse), []byte(`)`)))
-		chatHistory = append(chatHistory, utl.ConcatWords([]byte(``), []byte(`HumanMessage=(`), []byte(doc.History.Data.UserPrompt), []byte(`)`)))
+		chatHistory = append(chatHistory, utl.ConcatWords([]byte(``), []byte(`AI: `), []byte(doc.History.Data.DarksuitResponse)))
+		chatHistory = append(chatHistory, utl.ConcatWords([]byte(``), []byte(`Human: `), []byte(doc.History.Data.UserPrompt)))
 	}
-
 	// reverse the array
 	sort.Slice(chatHistory, func(i, j int) bool {
 		return i > j
@@ -125,13 +135,13 @@ func RetrieveMemoryWithK(db *mongo.Database, userId string, k int64) string {
 
 	// If the chat_history slice is empty, return an empty string
 	if len(chatHistory) == 0 {
-		return "[]"
+		return "[]", nil
 	}
 
 	// Join the chat_history slice elements into a single string separated by ", "
-	chatHistoryString := utl.ConcatWords([]byte(""), []byte("["), []byte(strings.Join(chatHistory, ", ")), []byte("]"))
+	chatHistoryString := utl.ConcatWords([]byte(""), []byte(strings.Join(chatHistory, "\n")))
 
 	// Return the chat_history_string
-	return chatHistoryString
+	return chatHistoryString, nil
 
 }

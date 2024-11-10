@@ -1,15 +1,25 @@
 package agent
 
+import (
+	"github.com/darksuit-ai/darksuitai/pkg/tools"
+	"go.mongodb.org/mongo-driver/mongo"
+)
+
 // Synapse struct represents the core structure for managing the state and data of the agent.
 type Synapse struct {
-	SysPrompt         []byte                 // SysPrompt holds the system prompt for the agent.
-	InstructPrompt    []byte                 // InstructPrompt holds the instructional prompt for the agent.
-	MetaData          map[string]interface{} // MetaData contains various metadata related to the agent's state.
-	ToolNames         string                 // ToolNames is a string of tool names available to the agent.
-	ModelType         map[string]string      // ModelType specifies the type of model used by the agent.
-	QueryForTimeRange string                 // QueryForTimeRange holds the query string for a specific time range.
-	RagToolResponse   []map[string]string
-	RagData []byte
+	SystemPrompt          []byte // SysPrompt holds the system prompt for the agent.
+	ChatInstructionPrompt []byte // InstructPrompt holds the instructional prompt for the agent.
+	ToolNodes             []tools.BaseTool
+	PromptKeys            map[string][]byte
+	ModelType             map[string]string
+	MongoDB               *mongo.Collection
+	ModelKwargs           []struct {
+		MaxTokens     int      `json:"max_tokens"`
+		Temperature   float64  `json:"temperature"`
+		Stream        bool     `json:"stream"`
+		StopSequences []string `json:"stop_sequences"`
+	}
+	APIKey []byte
 }
 
 // AIResponse represents the structured response of an AI assistant
@@ -46,7 +56,6 @@ type AgentActionTypes struct {
 	// AgentError holds any errors encountered by the agent during its process.
 	AgentError map[string][]byte
 }
-
 
 // LLMResult encapsulates the stream data from the channel and the complete prompt message for the cortex.
 type LLMResult struct {

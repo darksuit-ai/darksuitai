@@ -1,64 +1,117 @@
 package agent
 
-// import (
-// 	"bytes"
-// 	"regexp"
-// )
+import (
+	"bytes"
+	"encoding/xml"
+	"fmt"
+	"regexp"
+	"strings"
+)
 
-// var actionRegex = regexp.MustCompile(`\s*Action:\s*(.*)`)
-// var inputRegex = regexp.MustCompile(`\s*Input:\s*(.*)`)
-// var emojiRegex = regexp.MustCompile(`[^a-zA-Z0-9\s/]`)
+var (
+	// actionRegex   = regexp.MustCompile(`\s*Action:\s*(.*)`)
+	// inputRegex    = regexp.MustCompile(`\s*Input:\s*(.*)`)
+	// feedbackRegex = regexp.MustCompile(`\s*Feedback:\s*(.*)`)
+	emojiRegex = regexp.MustCompile(`[^a-zA-Z0-9\s/]`)
+)
 
 
-// // NeuralParser is a function that parses the output from the agent cortex.
-// // It takes a byte `data` as input, which represents the output from the agent.
-// // It returns an `AgentActionTypes` struct, which contains the agent's action and input,
-// // or an `AgentActionTypes` struct with the agent's final output, if the output contains "Final Answer".
-// // If the output does not contain the expected format, it returns an empty `AgentActionTypes` struct.
-// func NeuralParser(data []byte) (AgentActionTypes, []byte, error) {
-// 	substringFinalAnswer := []byte("Final Answer:")
-// 	//fmt.Printf("%s",data)
-// 	if bytes.Contains(data, []byte("Action:")) && bytes.Contains(data, []byte("Input:")) {
-// 		// Extract the words after "Action:" 
-// 		action := actionRegex.FindSubmatch(data)[1]
+func UnmarshalToolCall(data []byte) (*ToolCall, error) {
+	data = removeTextBeforeToolCall(data)
+	var aux struct {
+		XMLName  xml.Name `xml:"tool_call"`
+		Thought  string   `xml:"thought"`
+		Action   string   `xml:"action"`
+		Input    string   `xml:"input"`
+		Feedback string   `xml:"feedback"`
+	}
 
-// 		// Remove any emoji in the new variables
-// 		action = emojiRegex.ReplaceAll(action, []byte(""))
+	if err := xml.Unmarshal(data, &aux); err != nil {
+		return nil, err
+	}
 
-// 		action = bytes.Trim(action, "\n")
+	toolCall := &ToolCall{
+		Thought:  aux.Thought,
+		Action:   aux.Action,
+		Input:    strings.TrimSpace(aux.Input),
+		Feedback: aux.Feedback,
+	}
 
-// 		// Extract the words after "Input:"
-// 		input := inputRegex.FindSubmatch(data)[1]
-// 		//input := bytes.SplitAfter(data, []byte(`Input:`))[1]
-// 		// input = emojiRegex.ReplaceAll(input, []byte(""))
-// 		input = bytes.Trim(input, "\n")
+	return toolCall, nil
+}
 
-// 		// Create an `AgentActionTypes` struct with the extracted action and input
-// 		actionTypes := AgentActionTypes{
-// 			AgentAction: map[string]string{
-// 				"Action": string(bytes.TrimSpace(action)),
-// 				"Input":  string(input),
-// 			},
-// 		}
-		
-// 		var rawThought []byte
-// 		thoughtParts := bytes.SplitAfter(data, []byte("Thought:"))
-// 		if len(thoughtParts) > 1 {
-// 			rawThought = bytes.TrimPrefix(bytes.TrimSuffix(thoughtParts[1], []byte("\nAction:")), []byte(" "))
-// 		}
 
-// 		return actionTypes,rawThought, nil
-// 	} else if bytes.HasPrefix(data, substringFinalAnswer) || bytes.Contains(data, substringFinalAnswer) {
+// NeuralParser is a function that processes the output from the agent cortex.
+// It takes a byte slice `data` as input, representing the agent's decision on tool call.
+// It returns a pointer to an `AgentActionTypes` struct, which contains the agent's action details,
+// or an error struct if the output format is incorrect or contains multiple formats.
+// If the XML unmarshalling fails, it returns an error.
+func NeuralParser(data []byte,callType bool) (*AgentActionTypes, []byte, error) {
 
-// 		// Extract the final answer from the output
-// 		parts := bytes.Split(data, substringFinalAnswer)
-// 		finalAnswerOutput := bytes.Join(parts[1:], nil)
-// 		agentFinish := AgentActionTypes{AgentFinish: map[string][]byte{"Output": finalAnswerOutput}}
-// 		return agentFinish, data, nil
-// 	} else {
-		
-// 		// If the output does not match the expected formats, return an error `AgentActionTypes` struct
-// 		agentError := AgentActionTypes{AgentError: map[string][]byte{"Error":[]byte(`Oops! I used a wrong format. I will look at the response formats and try again.`)}}
-// 		return agentError, nil, nil
-// 	}
-// }
+	if hasMultipleFormats(data) {
+		return newAgentError("You can not call <answer> tag and <tool_call> tag at once. if you intend to use a tool then you should use ONLY <tool_call>."), nil, nil
+	}
+
+	if callType && isAnswerOnly(data) {
+		return newAgentFinish(data), nil, nil
+	}
+
+	toolCall, xmlErr := UnmarshalToolCall(data)
+	if xmlErr != nil {
+		return &AgentActionTypes{}, nil, fmt.Errorf("error unmarshaling XML: %v", xmlErr)
+	}
+
+	if toolCall.Thought != "" {
+		return buildAgentAction(toolCall), []byte(toolCall.Thought), nil
+	}
+
+	return newAgentError("Oops! I used a wrong format. I now know that if I am responding without a tool, I MUST use the <answer> XML Format ONLY or If I am planning to use a tool I must use the <tool_call> XML Format. I will now try again."), nil, nil
+}
+
+// Helper function to check if data contains multiple formats
+func hasMultipleFormats(data []byte) bool {
+	return bytes.Contains(data, []byte(`<tool_call>`)) && bytes.Contains(data, []byte(`<answer>`))
+}
+
+// Helper function to check if data is in answer-only format
+func isAnswerOnly(data []byte) bool {
+	return bytes.Contains(data, []byte(`<answer>`))
+}
+
+// Helper function to create a new AgentError
+func newAgentError(errorMessage string) *AgentActionTypes {
+	return &AgentActionTypes{
+		AgentError: map[string][]byte{
+			"Error":          []byte(errorMessage),
+			"IterationValue": []byte("1"),
+		},
+	}
+}
+
+// Helper function to create a new AgentFinish
+func newAgentFinish(data []byte) *AgentActionTypes {
+	return &AgentActionTypes{
+		AgentFinish: map[string][]byte{
+			"Output": data,
+		},
+	}
+}
+
+// Helper function to build AgentAction from tool call
+func buildAgentAction(toolCall *ToolCall) *AgentActionTypes {
+	action := emojiRegex.ReplaceAll([]byte(toolCall.Action), []byte(""))
+	input := "{}"
+
+	if inp, ok := toolCall.Input.(string); ok {
+		input = inp
+	}
+
+	return &AgentActionTypes{
+		AgentAction: map[string][]byte{
+			"Action":         bytes.TrimSpace(action),
+			"Input":          []byte(input),
+			"Feedback":       []byte(toolCall.Feedback),
+			"IterationValue": []byte("1"),
+		},
+	}
+}

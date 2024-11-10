@@ -140,7 +140,8 @@ func Client(apiKey string, req types.ChatArgs) (string, error) {
 
 		// Convert the response body to a string
 		bodyString := string(bodyBytes)
-
+		// Print the response body, neccessary for immediate error
+		fmt.Println(bodyString)
 		// Print the response body
 		return bodyString, nil
 	}
@@ -210,6 +211,7 @@ func StreamCompleteClient(apiKey string, req types.ChatArgs) (string, error) {
 		if err := json.NewDecoder(resp.Body).Decode(&clientErr); err != nil {
 			return "", fmt.Errorf("error unmarshaling error response: %w", err)
 		}
+		fmt.Println(fmt.Errorf("API error: %v", clientErr).Error())
 		return "", fmt.Errorf("API error: %v", clientErr)
 	}
 	// Use a scanner to read the streaming response
@@ -290,6 +292,8 @@ func StreamClient(apiKey string, req types.ChatArgs, chunkchan chan string) erro
 		if err := json.NewDecoder(resp.Body).Decode(&clientErr); err != nil {
 			return err
 		}
+
+		fmt.Println(clientErr.Error.Message)
 		return fmt.Errorf(clientErr.Error.Message)
 	}
 	// Use a scanner to read the streaming response

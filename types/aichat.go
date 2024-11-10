@@ -2,12 +2,12 @@ package types
 
 import "go.mongodb.org/mongo-driver/mongo"
 
-type ChatLLMArgs struct {
+type LLMArgs struct {
 	ChatSystemInstruction []byte
 	ChatInstruction       []byte
 	PromptKeys            map[string][]byte
 	ModelType             map[string]string
-	MongoDB               *mongo.Database
+	MongoDB               *mongo.Collection
 	ModelKwargs           []struct {
 		MaxTokens     int      `json:"max_tokens"`
 		Temperature   float64  `json:"temperature"`

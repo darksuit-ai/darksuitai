@@ -2,8 +2,8 @@ package convchat
 
 import (
 	ant "github.com/darksuit-ai/darksuitai/internal/llms/anthropic"
-	oai "github.com/darksuit-ai/darksuitai/internal/llms/openai"
 	gro "github.com/darksuit-ai/darksuitai/internal/llms/groq"
+	oai "github.com/darksuit-ai/darksuitai/internal/llms/openai"
 	"github.com/darksuit-ai/darksuitai/internal/memory/mongodb"
 	"github.com/darksuit-ai/darksuitai/internal/utilities"
 )
@@ -57,7 +57,9 @@ func (ai ConvAI) Stream(prompt string) <-chan string  {
 	}
 	promptMap := ai.PromptKeys
 	promptMap["query"] = []byte(prompt)
-	promptMap["chat_history"] = []byte(mongodb.RetrieveMemoryWithK(ai.MongoDB, "", 6))
+	var mongoMemory mongodb.ChatMemoryCollectionInterface = mongodb.NewMongoCollection(ai.MongoDB)
+	chatData,_ := mongoMemory.RetrieveMemoryWithK( "", 6)
+	promptMap["chat_history"] = []byte(chatData)
 	promptTemplate := utilities.CustomFormat(ai.ChatInstruction, promptMap)
 	respChan := llm.StreamChat(string(ai.APIKey),string(promptTemplate), string(ai.ChatSystemInstruction))
 	return respChan
