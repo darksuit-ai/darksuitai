@@ -51,7 +51,7 @@ func main() {
 	// }
 	// fmt.Println(resp)
 
-	streamChan, err := agent.Stream("explain the concept of AI")
+	streamChan, err := agent.Stream("what is the weather currently")
 	if err != nil{
 		print(err.Error())
 	}

@@ -1,7 +1,7 @@
 package _stream
 
 import (
-	"bytes"
+	_"bytes"
 	"context"
 	"strings"
 )
@@ -58,7 +58,7 @@ func _streamDifferentiator(ctx context.Context, writer *StreamWriter, llmStreamD
 							foundToolCall = true
 						} else {
 							startStream = true
-							writer.Write([]byte(toRawStringLiteral(buffer.String())))
+							writer.Write([]byte(toRawStringLiteral(buffer.String()+" ")))
 						}
 						packedWordsIndex = 0
 					}
@@ -86,16 +86,16 @@ func toRawStringLiteral(s string) string {
 	return replacer.Replace(s)
 }
 
-func (sw *StreamWriter) processStream(input []byte) []byte {
-    // If we haven't seen the opening tag yet
-    if !sw.SeenOpenTag {
-        if idx := bytes.Index(input, []byte(`<answer>`)); idx != -1 {
-            sw.SeenOpenTag = true
-            // Return everything after the opening tag
-            return bytes.Trim(bytes.TrimPrefix(input[idx:], []byte(`<answer>`)), "</answer>")
-        }
-        return []byte(``)
-    }
+// func (sw *StreamWriter) processStream(input []byte) []byte {
+//     // If we haven't seen the opening tag yet
+//     if !sw.SeenOpenTag {
+//         if idx := bytes.Index(input, []byte(`<answer>`)); idx != -1 {
+//             sw.SeenOpenTag = true
+//             // Return everything after the opening tag
+//             return append(bytes.TrimSpace(bytes.TrimPrefix(input[idx:], []byte(`<answer>`))), ' ')
+//         }
+//         return []byte(``)
+//     }
 
-    return input
-}
+//     return input
+// }

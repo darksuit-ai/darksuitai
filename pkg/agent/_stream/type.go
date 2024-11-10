@@ -49,10 +49,11 @@ func (sw *StreamWriter) Write(p []byte) (n int, err error) {
     case <-sw.Done:
         return 0, io.ErrClosedPipe
     default:
-		cleanData := sw.processStream(p)
-		if cleanData != nil {
-            sw.Ch <- string(cleanData)
-        }
+		// cleanData := sw.processStream(p)
+		// if cleanData != nil {
+        //     sw.Ch <- string(cleanData)
+        // }
+		sw.Ch <- string(p)
 		return sw.Builder.Write(p)
 }
 }
