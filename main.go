@@ -11,7 +11,7 @@ import (
 
 
 func main() {
-	// db := tsk.NewMongoChatMemory("mongodb+srv://","")
+	db := tsk.NewMongoChatMemory("mongodb://mongo-staging:da94f0cb367f7065636c25a3a42f3ef4@34.132.231.167:6725/mongo_staging?serverSelectionTimeoutMS=5000&authSource=mongo_staging&directConnection=true","mongo_staging")
 	weatherReportTool :=tsk.NewTool(
 		"weather report",
 		"",
@@ -32,7 +32,7 @@ func main() {
 // 	args.SetChatInstruction([]byte(`Answer the following like a british gentleman from medieval era in {year}.
 // Question:{query}
 // Answer:`))
-	// args.SetMongoDBChatMemory(db)
+	args.SetMongoDBChatMemory(db)
 	args.AddPromptKey("year", []byte(`1664`)) // pass variables to your prompt
 	// args.SetModelType("openai", "gpt-4o") // set the model
 	args.SetModelType("groq", "llama3-70b-8192") // set the model
@@ -41,11 +41,11 @@ func main() {
 	if err != nil{
 		print(err.Error())
 	}
-	err = agent.Program(3,true)
+	err = agent.Program(3,"ter",true)
 	if err != nil{
 		print(err.Error())
 	}
-	resp,_,err:=agent.Chat("hello what is the current weather?","")
+	resp,_,err:=agent.Chat("hello,what is my name?")
 	if err != nil{
 		print(err.Error())
 	}

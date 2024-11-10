@@ -57,7 +57,8 @@ func (ai ConvAI) Stream(prompt string) <-chan string  {
 	}
 	promptMap := ai.PromptKeys
 	promptMap["query"] = []byte(prompt)
-	chatData,_ := mongodb.RetrieveMemoryWithK(ai.MongoDB, "", 6)
+	var mongoMemory mongodb.ChatMemoryCollectionInterface = mongodb.NewMongoCollection(ai.MongoDB)
+	chatData,_ := mongoMemory.RetrieveMemoryWithK( "", 6)
 	promptMap["chat_history"] = []byte(chatData)
 	promptTemplate := utilities.CustomFormat(ai.ChatInstruction, promptMap)
 	respChan := llm.StreamChat(string(ai.APIKey),string(promptTemplate), string(ai.ChatSystemInstruction))

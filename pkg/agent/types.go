@@ -1,6 +1,9 @@
 package agent
 
-import "github.com/darksuit-ai/darksuitai/pkg/tools"
+import (
+	"github.com/darksuit-ai/darksuitai/pkg/tools"
+	"go.mongodb.org/mongo-driver/mongo"
+)
 
 // Synapse struct represents the core structure for managing the state and data of the agent.
 type Synapse struct {
@@ -9,6 +12,7 @@ type Synapse struct {
 	ToolNodes             []tools.BaseTool
 	PromptKeys            map[string][]byte
 	ModelType             map[string]string
+	MongoDB               *mongo.Collection
 	ModelKwargs           []struct {
 		MaxTokens     int      `json:"max_tokens"`
 		Temperature   float64  `json:"temperature"`
@@ -17,8 +21,6 @@ type Synapse struct {
 	}
 	APIKey []byte
 }
-
-
 
 // AIResponse represents the structured response of an AI assistant
 type ToolCall struct {

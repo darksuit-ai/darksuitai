@@ -1,15 +1,19 @@
 package agent
 
 import (
+	"bytes"
 	"fmt"
+
+	"github.com/darksuit-ai/darksuitai/internal/memory/mongodb"
 	"github.com/darksuit-ai/darksuitai/internal/prompts"
 	"github.com/darksuit-ai/darksuitai/internal/utilities"
 	"github.com/darksuit-ai/darksuitai/pkg/tools"
+	"go.mongodb.org/mongo-driver/mongo"
 )
 
 // PromptAgentInterface defines the interface for preparing the prompt for the LLM.
 type PromptAgentInterface interface {
-	PreparePrompt(SystemPrompt []byte, ChatInstructionPrompt []byte, agentTools []tools.BaseTool, PromptKeys map[string][]byte) ([]byte, []byte, map[string]tools.BaseTool, string, error)
+	PreparePrompt(SystemPrompt []byte, ChatInstructionPrompt []byte, agentTools []tools.BaseTool, PromptKeys map[string][]byte, mongoCollection *mongo.Collection, sessionId string) ([]byte, []byte, map[string]tools.BaseTool, string, error)
 }
 
 // PromptAgent is a struct that implements the PromptAgentInterface.
@@ -24,9 +28,17 @@ func NewPromptAgent() PromptAgentInterface {
 // PreparePrompt is a function that implements the MultiModalAgentInterface.
 // It prepares the prompt for the LLM (Language Learning Model) and returns the LLM and the prepared prompt.
 func (a *PromptAgent) PreparePrompt(SystemPrompt []byte, ChatInstructionPrompt []byte, agentTools []tools.BaseTool,
-	PromptKeys map[string][]byte) ([]byte, []byte, map[string]tools.BaseTool, string, error) {
+	PromptKeys map[string][]byte, mongoCollection *mongo.Collection, sessionId string) ([]byte, []byte, map[string]tools.BaseTool, string, error) {
 
-	var promptMapSystem map[string][]byte
+	var (
+		chatHistory     bytes.Buffer
+		promptMapSystem map[string][]byte
+	)
+
+	// Clean up buffers after function returns
+	defer func() {
+		chatHistory.Reset()
+	}()
 
 	if ChatInstructionPrompt == nil {
 
@@ -37,6 +49,7 @@ func (a *PromptAgent) PreparePrompt(SystemPrompt []byte, ChatInstructionPrompt [
 
 		ChatInstructionPrompt = internalPrompts.AGENTCHATINSTRUCTION
 	}
+
 	if SystemPrompt == nil {
 
 		internalPrompts, err := prompts.LoadPromptConfigs()
@@ -46,6 +59,17 @@ func (a *PromptAgent) PreparePrompt(SystemPrompt []byte, ChatInstructionPrompt [
 
 		SystemPrompt = internalPrompts.AGENTSYSTEMINSTRUCTION
 	}
+
+	if sessionId != "" {
+		var mongoMemory mongodb.ChatMemoryCollectionInterface = mongodb.NewMongoCollection(mongoCollection)
+		// If the session ID is available, retrieve the chat history with a limit of 6 entries
+		chatData, retrieveErr := mongoMemory.RetrieveMemoryWithK(sessionId, 6)
+		if retrieveErr != nil {
+
+		}
+		chatHistory.WriteString(chatData)
+	}
+
 	// Render the tool names
 	tl, tn := RenderToolNames(agentTools)
 
@@ -55,8 +79,9 @@ func (a *PromptAgent) PreparePrompt(SystemPrompt []byte, ChatInstructionPrompt [
 	}
 
 	promptMap = map[string][]byte{
-		"tool_names": []byte(tn),
-		"tools":      []byte(tl),
+		"tool_names":   []byte(tn),
+		"tools":        []byte(tl),
+		"chat_history": chatHistory.Bytes(),
 	}
 
 	if _, exists := PromptKeys["timeZone"]; exists {

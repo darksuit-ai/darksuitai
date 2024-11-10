@@ -17,4 +17,5 @@ type AgentPreProgram struct {
 	ChatMemoryCollection *mongo.Collection
 	MaxIteration         int
 	Verbose              bool
+	SessionId            string
 }

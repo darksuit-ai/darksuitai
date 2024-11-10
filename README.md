@@ -227,11 +227,11 @@ func main() {
 	if err != nil{
 		// handle the error as you wish
 	}
-	err = agent.Program(3,true)
+	err = agent.Program(3,"your-session-id",true)
 	if err != nil{
 		// handle the error as you wish
 	}
-	resp,_,err:=agent.Chat("hello what is the current weather?","")
+	resp,_,err:=agent.Chat("hello what is the current weather?")
 	if err != nil{
 		// handle the error as you wish
 	}

@@ -7,12 +7,12 @@ import (
 	"strings"
 	"sync"
 
-	"log"
-
-	mem "github.com/darksuit-ai/darksuitai/internal/memory/mongodb"
+	"github.com/darksuit-ai/darksuitai/internal/memory/mongodb"
 	"github.com/darksuit-ai/darksuitai/internal/utilities"
 	"github.com/darksuit-ai/darksuitai/pkg/agent"
 	"github.com/darksuit-ai/darksuitai/pkg/tools"
+	"go.mongodb.org/mongo-driver/mongo"
+	"log"
 )
 
 /*
@@ -85,7 +85,7 @@ func _getToolReturn(agentTools map[string]tools.BaseTool, toolNames, action, act
 
 }
 
-func (synapse *AgentPreProgram) Executor(query_prompt map[string][]byte, sessionId string, maxIterations int, verbose bool) ([]byte, any, error) {
+func (prePrompt *AgentPreProgram) Executor(query_prompt map[string][]byte, sessionId string, maxIterations int, verbose bool) ([]byte, any, error) {
 
 	var (
 		wg sync.WaitGroup
@@ -106,12 +106,12 @@ func (synapse *AgentPreProgram) Executor(query_prompt map[string][]byte, session
 		clm callLLMInterface
 	)
 
-	synapse.AIIdentity = []byte("\nAI: ")
+	prePrompt.AIIdentity = []byte("\nAI: ")
 
 	// Anti-looping safeguards
 	lastToolResponseHash := ""
 
-	clm = synapse
+	clm = prePrompt
 	// Call the LLM with the query prompt and store the initial message and LLM's response
 	initMessage, llmResponse, callErr = clm._callLanguageModel(query_prompt)
 
@@ -140,20 +140,23 @@ func (synapse *AgentPreProgram) Executor(query_prompt map[string][]byte, session
 				utilities.Printer("", string(finish), "green")
 			}
 
-			// Save the conversation to memory in a separate goroutine
-			wg.Add(1)
-			go func() {
-				defer wg.Done()
-				if synapse.ChatMemoryCollection != nil {
-					if toolResponseList != nil {
-						mem.AddConversationToMemory(synapse.ChatMemoryCollection, sessionId, string(query_prompt["question"]), string(finish))
-					}
-					mem.AddConversationToMemory(synapse.ChatMemoryCollection, sessionId, string(query_prompt["question"]), string(finish))
-				}
-			}()
-
 			finish = bytes.ReplaceAll(finish, []byte("<answer>"), []byte(""))
 			finish = bytes.ReplaceAll(finish, []byte("</answer>"), []byte(""))
+
+			if prePrompt.ChatMemoryCollection != nil {
+				// Create local copies of variables needed in goroutine
+				memoryCollection := prePrompt.ChatMemoryCollection
+				questionCopy := string(query_prompt["question"])
+				finishCopy := string(finish)
+				// Save the conversation to memory in a separate goroutine
+				wg.Add(1)
+				go func(collection *mongo.Collection, question, finishText string) {
+					defer wg.Done()
+					var mongoMemory mongodb.ChatMemoryCollectionInterface = mongodb.NewMongoCollection(collection)
+					mongoMemory.AddConversationToMemory(sessionId, question, finishText)
+
+				}(memoryCollection, questionCopy, finishCopy)
+			}
 
 			if toolResponseList != nil {
 				return finish, toolResponseList, nil
@@ -165,7 +168,7 @@ func (synapse *AgentPreProgram) Executor(query_prompt map[string][]byte, session
 		// TODO: allow the agentActionTypes.AgentAction["Action"] determine number of iterations
 		if action, ok := agentActionTypes.AgentAction["Action"]; ok {
 
-			toolResponse, rawToolResponse, toolName, err := _getToolReturn(synapse.Tools, synapse.ToolNames, string(action), string(agentActionTypes.AgentAction["Input"]), synapse.AdditionalToolsMeta)
+			toolResponse, rawToolResponse, toolName, err := _getToolReturn(prePrompt.Tools, prePrompt.ToolNames, string(action), string(agentActionTypes.AgentAction["Input"]), prePrompt.AdditionalToolsMeta)
 
 			if err != nil {
 				return nil, nil, err
@@ -184,7 +187,7 @@ func (synapse *AgentPreProgram) Executor(query_prompt map[string][]byte, session
 				agentThoughtProcesses = append(agentThoughtProcesses, llmResponse...)
 				agentThoughtProcesses = append(agentThoughtProcesses, []byte("Observation: ")...)
 				agentThoughtProcesses = append(agentThoughtProcesses, []byte(`Sorry about that I got abit distracted. Please ask me again`)...)
-				agentThoughtProcesses = append(agentThoughtProcesses, synapse.AIIdentity...)
+				agentThoughtProcesses = append(agentThoughtProcesses, prePrompt.AIIdentity...)
 				agentPlan := agent.AgentActionTypes{
 					AgentPlan: map[string][]byte{
 						"plan":            agentThoughtProcesses,
@@ -192,7 +195,7 @@ func (synapse *AgentPreProgram) Executor(query_prompt map[string][]byte, session
 					},
 				}
 
-				_, llmResponse, callErr = synapse._callLanguageModel(agentPlan.AgentPlan)
+				_, llmResponse, callErr = prePrompt._callLanguageModel(agentPlan.AgentPlan)
 
 				if callErr != nil {
 					return nil, nil, callErr
@@ -202,11 +205,11 @@ func (synapse *AgentPreProgram) Executor(query_prompt map[string][]byte, session
 			lastToolResponseHash = currentToolResponseHash
 			if toolResponse != "" {
 				// Build next prompt
-				agentThoughtProcesses = append(agentThoughtProcesses, synapse.AIIdentity...)
+				agentThoughtProcesses = append(agentThoughtProcesses, prePrompt.AIIdentity...)
 				agentThoughtProcesses = append(agentThoughtProcesses, llmResponse...)
 				agentThoughtProcesses = append(agentThoughtProcesses, []byte("\nObservation: ")...)
 				agentThoughtProcesses = append(agentThoughtProcesses, []byte(toolResponse)...)
-				agentThoughtProcesses = append(agentThoughtProcesses, synapse.AIIdentity...)
+				agentThoughtProcesses = append(agentThoughtProcesses, prePrompt.AIIdentity...)
 
 				agentPlan := agent.AgentActionTypes{
 					AgentPlan: map[string][]byte{
@@ -214,7 +217,7 @@ func (synapse *AgentPreProgram) Executor(query_prompt map[string][]byte, session
 						"initial_message": initMessage,
 					},
 				}
-				_, llmResponse, callErr = synapse._callLanguageModel(agentPlan.AgentPlan)
+				_, llmResponse, callErr = prePrompt._callLanguageModel(agentPlan.AgentPlan)
 
 				if callErr != nil {
 					return nil, nil, callErr
@@ -227,25 +230,25 @@ func (synapse *AgentPreProgram) Executor(query_prompt map[string][]byte, session
 				utilities.Printer("Warning: ", string(errorMessage), "orange")
 			}
 
-				// Build next prompt
-				agentThoughtProcesses = append(agentThoughtProcesses, synapse.AIIdentity...)
-				agentThoughtProcesses = append(agentThoughtProcesses, llmResponse...)
-				agentThoughtProcesses = append(agentThoughtProcesses, []byte("\nSystemError: ")...)
-				agentThoughtProcesses = append(agentThoughtProcesses, errorMessage...)
-				agentThoughtProcesses = append(agentThoughtProcesses, synapse.AIIdentity...)
+			// Build next prompt
+			agentThoughtProcesses = append(agentThoughtProcesses, prePrompt.AIIdentity...)
+			agentThoughtProcesses = append(agentThoughtProcesses, llmResponse...)
+			agentThoughtProcesses = append(agentThoughtProcesses, []byte("\nSystemError: ")...)
+			agentThoughtProcesses = append(agentThoughtProcesses, errorMessage...)
+			agentThoughtProcesses = append(agentThoughtProcesses, prePrompt.AIIdentity...)
 
-				agentPlan := agent.AgentActionTypes{
-					AgentPlan: map[string][]byte{
-						"plan":            agentThoughtProcesses,
-						"initial_message": initMessage,
-					},
-				}
-				_, llmResponse, callErr = synapse._callLanguageModel(agentPlan.AgentPlan)
+			agentPlan := agent.AgentActionTypes{
+				AgentPlan: map[string][]byte{
+					"plan":            agentThoughtProcesses,
+					"initial_message": initMessage,
+				},
+			}
+			_, llmResponse, callErr = prePrompt._callLanguageModel(agentPlan.AgentPlan)
 
-				if callErr != nil {
-					return nil, nil, callErr
-				}
-			
+			if callErr != nil {
+				return nil, nil, callErr
+			}
+
 		}
 	}
 	wg.Wait()
