@@ -85,7 +85,7 @@ func _getToolReturn(agentTools map[string]tools.BaseTool, toolNames, action, act
 
 }
 
-func (prePrompt *AgentPreProgram) Executor(query_prompt map[string][]byte, sessionId string, maxIterations int, verbose bool) ([]byte, any, error) {
+func (prePrompt *AgentPreProgram) Executor(queryPrompt map[string][]byte, sessionId string, maxIterations int, verbose bool) ([]byte, any, error) {
 
 	var (
 		wg sync.WaitGroup
@@ -113,7 +113,7 @@ func (prePrompt *AgentPreProgram) Executor(query_prompt map[string][]byte, sessi
 
 	clm = prePrompt
 	// Call the LLM with the query prompt and store the initial message and LLM's response
-	initMessage, llmResponse, callErr = clm._callLanguageModel(query_prompt)
+	initMessage, llmResponse, callErr = clm._callLanguageModel(queryPrompt)
 
 	if callErr != nil {
 		return nil, nil, callErr
@@ -146,7 +146,7 @@ func (prePrompt *AgentPreProgram) Executor(query_prompt map[string][]byte, sessi
 			if prePrompt.ChatMemoryCollection != nil {
 				// Create local copies of variables needed in goroutine
 				memoryCollection := prePrompt.ChatMemoryCollection
-				questionCopy := string(query_prompt["question"])
+				questionCopy := string(queryPrompt["question"])
 				finishCopy := string(finish)
 				// Save the conversation to memory in a separate goroutine
 				wg.Add(1)
@@ -173,13 +173,12 @@ func (prePrompt *AgentPreProgram) Executor(query_prompt map[string][]byte, sessi
 			if err != nil {
 				return nil, nil, err
 			}
-			// Append the raw tool response bytes to toolResponseList
-			toolResponseList = append(toolResponseList, map[string]interface{}{toolName: rawToolResponse})
 
 			if verbose {
 				utilities.Printer("Observation: ", toolResponse, "purple")
 			}
-
+			// Append the raw tool response bytes to toolResponseList
+			toolResponseList = append(toolResponseList, map[string]interface{}{toolName: rawToolResponse})
 			// Anti-looping check: Compare current toolResponse with the last one
 			currentToolResponseHash := hashToolResponse(toolResponse)
 			if currentToolResponseHash == lastToolResponseHash {
