@@ -11,7 +11,7 @@ ensure to reverse before PR
 */
 
 func main() {
-	db := tsk.NewMongoChatMemory("mongodb://mongo-staging:da94f0cb367f7065636c25a3a42f3ef4@34.132.231.167:6725/mongo_staging?serverSelectionTimeoutMS=5000&authSource=mongo_staging&directConnection=true","mongo_staging")
+	db := tsk.NewMongoChatMemory("","")
 	weatherReportTool :=tsk.NewTool(
 		"weather report",
 		"",
