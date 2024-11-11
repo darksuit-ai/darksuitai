@@ -5,9 +5,10 @@ import (
 	gro "github.com/darksuit-ai/darksuitai/internal/llms/groq"
 	oai "github.com/darksuit-ai/darksuitai/internal/llms/openai"
 	"github.com/darksuit-ai/darksuitai/internal/utilities"
+	"github.com/darksuit-ai/darksuitai/internal/llms"
 )
 
-var llm LLM
+var llm llms.LLM
 
 func (ai Synapse) Basechat(prompt []byte) (string, error) {
 	kwargs := make([]map[string]interface{}, 5)
@@ -113,7 +114,7 @@ func (ai Synapse) ChatIterable(thoughtWithToolResponse []byte) (string, error) {
 	return resp, err
 }
 
-func (ai Synapse) BaseStream(prompt []byte) <-chan string {
+func (ai Synapse) BaseStream(prompt []byte,ipcChan chan string) {
 	kwargs := make([]map[string]interface{}, 5)
 	for key := range ai.ModelType {
 		switch key {
@@ -161,11 +162,10 @@ func (ai Synapse) BaseStream(prompt []byte) <-chan string {
 	}
 	promptMap := ai.PromptKeys
 	promptTemplate := utilities.CustomFormat(prompt, promptMap)
-	respChan := llm.StreamChat(string(ai.APIKey), string(promptTemplate), string(ai.SystemPrompt))
-	return respChan
+	go llm.StreamChat(string(ai.APIKey), string(promptTemplate), string(ai.SystemPrompt),ipcChan)
 }
 
-func (ai Synapse) StreamIterable(thoughtWithToolResponse []byte) <-chan string {
+func (ai Synapse) StreamIterable(thoughtWithToolResponse []byte, ipcChan chan string) {
 	kwargs := make([]map[string]interface{}, 5)
 	for key := range ai.ModelType {
 		switch key {
@@ -213,6 +213,5 @@ func (ai Synapse) StreamIterable(thoughtWithToolResponse []byte) <-chan string {
 	}
 	promptMap := ai.PromptKeys
 	promptTemplate := utilities.CustomFormat(thoughtWithToolResponse, promptMap)
-	respChan := llm.StreamChat(string(ai.APIKey), string(promptTemplate), string(ai.SystemPrompt))
-	return respChan
+	go llm.StreamChat(string(ai.APIKey), string(promptTemplate), string(ai.SystemPrompt), ipcChan)
 }

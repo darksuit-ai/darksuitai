@@ -8,9 +8,10 @@ import (
 	oai "github.com/darksuit-ai/darksuitai/internal/llms/openai"
 	"github.com/darksuit-ai/darksuitai/internal/prompts"
 	"github.com/darksuit-ai/darksuitai/internal/utilities"
+		"github.com/darksuit-ai/darksuitai/internal/llms"
 )
 
-var llm LLM
+var llm llms.LLM
 
 func (ai AI) Chat(prompt string) (string, error) {
 	kwargs := make([]map[string]interface{}, 5)

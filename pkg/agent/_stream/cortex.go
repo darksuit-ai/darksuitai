@@ -60,13 +60,16 @@ func (prePrompt *AgentPreProgram) _callLanguageModel(queryToolResponsePrompt map
 
 	var (
 		message   []byte
-		llmStream <-chan string
+		llmStream chan string
 	)
 
 	// Check if the "question" key exists in the input map
 	if question, ok := queryToolResponsePrompt["question"]; ok {
 		message = utilities.CustomFormat(prePrompt.BasePrompt, map[string][]byte{"query": question})
-		llmStream = prePrompt.BaseRunnableCaller(message)
+		prePrompt.BaseRunnableCaller(message,llmStream)
+		for response := range llmStream {
+			print(response)
+		}
 		// Create a new LLMResult instance and return it
 		return &LLMResult{Message: message, LLMResponse: llmStream}
 	} else if plan, ok := queryToolResponsePrompt["plan"]; ok { // Check if the "plan" key exists in the input map
@@ -74,7 +77,7 @@ func (prePrompt *AgentPreProgram) _callLanguageModel(queryToolResponsePrompt map
 		// If it exists, format the initial message with the plan
 		thoughtWithToolResponse := utilities.CustomFormat([]byte(queryToolResponsePrompt["initial_message"]), map[string][]byte{"flow_of_thought": plan})
 
-		llmStream = prePrompt.RunnableCaller(thoughtWithToolResponse)
+		prePrompt.RunnableCaller(thoughtWithToolResponse,llmStream)
 		// Create a new LLMResult instance and return it
 		return &LLMResult{Message: message, LLMResponse: llmStream}
 	}
@@ -114,7 +117,7 @@ func (prePrompt *AgentPreProgram) StreamExecutor(queryPrompt map[string][]byte, 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	defer writer.Close() // Ensure we close the stream writer when done
-	
+	print("here")
 
 	prePrompt.AIIdentity = []byte("\nAI: ")
 

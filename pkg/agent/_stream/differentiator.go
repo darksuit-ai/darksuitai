@@ -25,6 +25,7 @@ func _streamDifferentiator(ctx context.Context, writer *StreamWriter, llmStreamD
 	)
 
 	for syllable := range llmStreamData.LLMResponse {
+		println(syllable)
 		select {
 		case <-ctx.Done():
 			return nil, false

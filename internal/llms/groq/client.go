@@ -272,14 +272,13 @@ func StreamClient(apiKey string, req types.ChatArgs, chunkchan chan string) erro
 		return err
 	}
 	defer resp.Body.Close()
-
 	if resp.StatusCode == 400 {
 		// Read the response body
 		bodyBytes, err := io.ReadAll(resp.Body)
 		if err != nil {
 			return err
 		}
-
+		fmt.Println(string(bodyBytes))
 		chunkchan <- string(bodyBytes)
 	}
 	// Check if the response status indicates an error

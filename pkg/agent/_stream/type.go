@@ -14,8 +14,8 @@ type AgentPreProgram struct {
 	Tools                map[string]tools.BaseTool
 	ToolNames            string
 	AdditionalToolsMeta  map[string]interface{}
-	BaseRunnableCaller   func(prompt []byte) <-chan string
-	RunnableCaller       func(promptIterable []byte) <-chan string
+	BaseRunnableCaller   func(prompt []byte, ipcChan chan string)
+	RunnableCaller       func(promptIterable []byte, ipcChan chan string)
 	AIIdentity           []byte
 	ChatMemoryCollection *mongo.Collection
 	MaxIteration         int
