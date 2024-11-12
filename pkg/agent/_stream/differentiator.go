@@ -1,79 +1,86 @@
 package _stream
 
 import (
-	_"bytes"
 	"context"
 	"strings"
 )
 
-func _streamDifferentiator(ctx context.Context, writer *StreamWriter, llmStreamData *LLMResult) ([]byte, bool) {
-	const (
-		bufferSize     int    = 4
-		toolCallKey    string = `<tool_call>`
-		toolCallKeyAlt string = `thought`
-		StreamStartKey string = `<answer>`
-	)
+type streamState struct {
+	buffer      []string
+	accumulated strings.Builder
+	isToolCall  bool
+	isStreaming bool
+}
 
-	var (
-		packedWords      [bufferSize]string
-		packedWordsIndex int
-		completeWords    strings.Builder
-		buffer           strings.Builder
-		foundToolCall    bool
-		startStream      bool
-		actionReadiness  bool = true
-	)
+const (
+	wordBufferSize = 5
+	toolCallMarker = "<tool_call>"
+)
 
+func _streamDifferentiator(ctx context.Context, writer *StreamWriter, llmStreamData LLMResult) ([]byte, bool) {
+	state := streamState{
+		buffer: make([]string, 0, wordBufferSize),
+	}
+
+	// Process incoming stream data
 	for syllable := range llmStreamData.LLMResponse {
-		select {
-		case <-ctx.Done():
+		// If already streaming, write directly
+		if state.isStreaming {
+			_, _ = writer.Write([]byte(toRawStringLiteral(syllable)))
+			continue
+		}
+
+		processStreamChunk(syllable, &state, writer)
+	}
+
+	// If we found a tool call, return the accumulated content
+	if state.isToolCall {
+		return []byte(state.accumulated.String()), true
+	}
+
+	// Flush any remaining buffered content
+	if len(state.buffer) > 0 {
+		content := strings.Join(state.buffer, "")
+		if _, err := writer.Write([]byte(toRawStringLiteral(content))); err != nil {
 			return nil, false
-		default:
-			if startStream {
-				completeWords.Reset()
-				actionReadiness = false
-				processedSyllable := toRawStringLiteral(syllable)
-				writer.Write([]byte(processedSyllable))
-				continue
-			}
-
-			completeWords.WriteString(syllable)
-
-			if !foundToolCall {
-				trimmedSyllable := strings.TrimLeft(syllable, " ")
-				if trimmedSyllable != "" {
-					if packedWordsIndex < bufferSize {
-						packedWords[packedWordsIndex] = trimmedSyllable
-						packedWordsIndex++
-					}
-
-					if packedWordsIndex == bufferSize {
-						buffer.Reset()
-						for _, word := range packedWords {
-							buffer.WriteString(word)
-						}
-
-						if strings.Contains(buffer.String(), toolCallKey) || 
-						   strings.Contains(buffer.String(), toolCallKeyAlt) {
-							foundToolCall = true
-						} else {
-							startStream = true
-							writer.Write([]byte(toRawStringLiteral(buffer.String()+" ")))
-						}
-						packedWordsIndex = 0
-					}
-				}
-			}
 		}
 	}
 
-	if !actionReadiness {
-		return nil, false
-	}
-	return []byte(completeWords.String()), true
+	// No tool call found
+	return nil, false
 }
 
+func processStreamChunk(syllable string, state *streamState, writer *StreamWriter) {
 
+	// Accumulate content
+	state.accumulated.WriteString(syllable)
+
+	// print(state.accumulated.String())
+	if !state.isToolCall {
+
+		// Skip empty chunks
+		trimmed := strings.TrimSpace(syllable)
+
+		// Buffer words for tool call detection
+		state.buffer = append(state.buffer, trimmed)
+
+		// Process buffer when it reaches the desired size
+		if len(state.buffer) >= wordBufferSize {
+			content := strings.Join(state.buffer, "")
+
+			if strings.Contains(content, toolCallMarker) {
+				state.isToolCall = true
+			} else {
+
+				// Start streaming if no tool call found
+				state.isStreaming = true
+				_, _ = writer.Write([]byte(toRawStringLiteral(content + " ")))
+			}
+
+		}
+	}
+
+}
 
 func toRawStringLiteral(s string) string {
 	replacer := strings.NewReplacer(
@@ -85,17 +92,3 @@ func toRawStringLiteral(s string) string {
 	)
 	return replacer.Replace(s)
 }
-
-// func (sw *StreamWriter) processStream(input []byte) []byte {
-//     // If we haven't seen the opening tag yet
-//     if !sw.SeenOpenTag {
-//         if idx := bytes.Index(input, []byte(`<answer>`)); idx != -1 {
-//             sw.SeenOpenTag = true
-//             // Return everything after the opening tag
-//             return append(bytes.TrimSpace(bytes.TrimPrefix(input[idx:], []byte(`<answer>`))), ' ')
-//         }
-//         return []byte(``)
-//     }
-
-//     return input
-// }

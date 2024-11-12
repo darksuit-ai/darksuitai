@@ -237,6 +237,18 @@ func main() {
 	}
 	fmt.Println(resp)
 
+	// To stream
+
+	streamChan, err := agent.Stream("what is the current weather")
+	if err != nil {
+		print(err.Error())
+	}
+
+	for chunk := range streamChan {
+		// Process each chunk as it arrives
+		fmt.Println(">>", chunk)
+	}
+
 }
 
 ```

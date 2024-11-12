@@ -1,11 +1,13 @@
 package _stream
 
 import (
-	"github.com/darksuit-ai/darksuitai/pkg/tools"
-	"go.mongodb.org/mongo-driver/mongo"
+	"bytes"
+	"io"
 	"strings"
 	"sync"
-	"io"
+
+	"github.com/darksuit-ai/darksuitai/pkg/tools"
+	"go.mongodb.org/mongo-driver/mongo"
 )
 
 type AgentPreProgram struct {
@@ -14,8 +16,8 @@ type AgentPreProgram struct {
 	Tools                map[string]tools.BaseTool
 	ToolNames            string
 	AdditionalToolsMeta  map[string]interface{}
-	BaseRunnableCaller   func(prompt []byte) <-chan string
-	RunnableCaller       func(promptIterable []byte) <-chan string
+	BaseRunnableCaller   func(prompt []byte, ipcChan chan string)
+	RunnableCaller       func(promptIterable []byte, ipcChan chan string)
 	AIIdentity           []byte
 	ChatMemoryCollection *mongo.Collection
 	MaxIteration         int
@@ -29,7 +31,7 @@ type LLMResult struct {
 	// Message holds the complete prompt message sent to the Neuron
 	Message []byte
 	// LLMResponse is the channel that passes each stream text from the LLM's response
-	LLMResponse <-chan string
+	LLMResponse chan string
 }
 
 type StreamWriter struct {
@@ -44,16 +46,30 @@ type StreamWriter struct {
 		Buffer      strings.Builder
 }
 
+func (sw *StreamWriter) processStream(input []byte) []byte {
+    // If we haven't seen the opening tag yet
+    if !sw.SeenOpenTag {
+        if idx := bytes.Index(input, []byte(`<answer>`)); idx != -1 {
+            sw.SeenOpenTag = true
+            // Return everything after the opening tag
+            return append(bytes.TrimPrefix(input[idx:], []byte(`<answer>`)), ' ')
+        }
+        return []byte(``)
+    }
+
+    return input
+}
+
 func (sw *StreamWriter) Write(p []byte) (n int, err error) {
 	select {
     case <-sw.Done:
         return 0, io.ErrClosedPipe
     default:
-		// cleanData := sw.processStream(p)
-		// if cleanData != nil {
-        //     sw.Ch <- string(cleanData)
-        // }
-		sw.Ch <- string(p)
+		cleanData := sw.processStream(p)
+		if cleanData != nil {
+            sw.Ch <- string(cleanData)
+        }
+		// sw.Ch <- string(p)
 		return sw.Builder.Write(p)
 }
 }

@@ -1,6 +1,8 @@
 package openai
 
-import "github.com/darksuit-ai/darksuitai/internal/llms/openai/types"
+import (
+	"github.com/darksuit-ai/darksuitai/internal/llms/openai/types"
+)
 
 // ChatError represents a chat-related error.
 type ClientChatError struct {
@@ -84,7 +86,7 @@ func (params OAIChatArgs) StreamCompleteChat(apiKey string, prompt string, syste
 }
 
 // StreamChat sends a prompt to the stream chat client and returns the response.
-func (params OAIChatArgs) StreamChat(apiKey string, prompt string, system string) <-chan string {
+func (params OAIChatArgs) StreamChat(apiKey string, prompt string, system string, ipcChan chan string){
 
 	if params.ChatArgs.Messages == nil {
 		params.ChatArgs.Messages = make([]types.Message, 0)
@@ -97,15 +99,6 @@ func (params OAIChatArgs) StreamChat(apiKey string, prompt string, system string
 	}
 
 	params.Stream = true
-	chunkchan := make(chan string)
 
-	go func() {
-		defer close(chunkchan)
-		err := StreamClient(apiKey, params.ChatArgs, chunkchan)
-		if err != nil {
-			chunkchan <- err.Error()
-		}
-	}()
-
-	return chunkchan
+	go StreamClient(apiKey, params.ChatArgs, ipcChan)
 }

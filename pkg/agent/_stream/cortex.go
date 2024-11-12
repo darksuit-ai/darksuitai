@@ -19,7 +19,7 @@ This script could handle the core logic and decision-making of this LLM agent.
 // CallLLMInterface is an interface that defines a single method _callLanguageModel
 // which takes a map of strings to byte slices as input and returns an LLMResult.
 type callLLMInterface interface {
-	_callLanguageModel(queryToolResponsePrompt map[string][]byte) *LLMResult
+	_callLanguageModel(queryToolResponsePrompt map[string][]byte) LLMResult
 }
 
 // Constants for maximum iterations and final iteration
@@ -56,30 +56,26 @@ var wrongToolSelection = []byte(`You tried to use the tool {tool}, but it doesn'
 //     and returns an LLMResult struct with the formatted prompt and the response stream.
 //
 // 7. If neither "question" nor "plan" keys are present in the input map, it returns an empty LLMResult struct.
-func (prePrompt *AgentPreProgram) _callLanguageModel(queryToolResponsePrompt map[string][]byte) *LLMResult {
+func (prePrompt *AgentPreProgram) _callLanguageModel(queryToolResponsePrompt map[string][]byte) LLMResult {
 
-	var (
-		message   []byte
-		llmStream <-chan string
-	)
+	var message   []byte
+	llmBaseStream := make(chan string)
 
 	// Check if the "question" key exists in the input map
 	if question, ok := queryToolResponsePrompt["question"]; ok {
 		message = utilities.CustomFormat(prePrompt.BasePrompt, map[string][]byte{"query": question})
-		llmStream = prePrompt.BaseRunnableCaller(message)
+        go prePrompt.BaseRunnableCaller(message, llmBaseStream)
 		// Create a new LLMResult instance and return it
-		return &LLMResult{Message: message, LLMResponse: llmStream}
+		return LLMResult{Message: message, LLMResponse: llmBaseStream}
 	} else if plan, ok := queryToolResponsePrompt["plan"]; ok { // Check if the "plan" key exists in the input map
-
 		// If it exists, format the initial message with the plan
 		thoughtWithToolResponse := utilities.CustomFormat([]byte(queryToolResponsePrompt["initial_message"]), map[string][]byte{"flow_of_thought": plan})
-
-		llmStream = prePrompt.RunnableCaller(thoughtWithToolResponse)
+		go prePrompt.RunnableCaller(thoughtWithToolResponse, llmBaseStream)
 		// Create a new LLMResult instance and return it
-		return &LLMResult{Message: message, LLMResponse: llmStream}
+		return LLMResult{Message: message, LLMResponse: llmBaseStream}
 	}
 
-	return &LLMResult{} // Return an empty LLMResult if neither "question" nor "plan" keys are present
+	return LLMResult{} // Return an empty LLMResult if neither "question" nor "plan" keys are present
 }
 
 func _getToolReturn(agentTools map[string]tools.BaseTool, toolNames, action, actionInput string, toolMeta map[string]interface{}) (string, any, string, error) {
@@ -115,7 +111,6 @@ func (prePrompt *AgentPreProgram) StreamExecutor(queryPrompt map[string][]byte, 
 	defer cancel()
 	defer writer.Close() // Ensure we close the stream writer when done
 	
-
 	prePrompt.AIIdentity = []byte("\nAI: ")
 
 	iterationCount := 0
@@ -124,7 +119,6 @@ func (prePrompt *AgentPreProgram) StreamExecutor(queryPrompt map[string][]byte, 
 	llmStreamData := clm._callLanguageModel(queryPrompt)
 	initMessage = llmStreamData.Message
 	llmResponse, actionReady = _streamDifferentiator(ctx, writer, llmStreamData)
-
 	// Main processing loop with proper iteration control
 	for actionReady && iterationCount < maxIterations {
 		iterationCount++

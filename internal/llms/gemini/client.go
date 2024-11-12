@@ -245,7 +245,9 @@ func StreamCompleteClient(apiKey string, req types.ChatArgs) (string, error) {
 	return finalResult, nil
 }
 
-func StreamClient(apiKey string, req types.ChatArgs, chunkchan chan string) error {
+func StreamClient(apiKey string, req types.ChatArgs, chunkChan chan string) error {
+	// Ensure we close the channel when we're done
+	defer close(chunkChan)
 	checkEnvVar()
 	// Marshal the payload to JSON
 	reqJsonPayload, err := json.Marshal(req)
@@ -282,7 +284,7 @@ func StreamClient(apiKey string, req types.ChatArgs, chunkchan chan string) erro
 			return err
 		}
 
-		chunkchan <- string(bodyBytes)
+		chunkChan <- string(bodyBytes)
 	}
 	// Check if the response status indicates an error
 	if resp.StatusCode >= 400 {
@@ -314,7 +316,7 @@ func StreamClient(apiKey string, req types.ChatArgs, chunkchan chan string) erro
 			if err := json.Unmarshal(data, &chunk); err != nil {
 				return err
 			}
-			chunkchan <- chunk.Choices[0].Delta.Content
+			chunkChan <- chunk.Choices[0].Delta.Content
 
 		}
 

@@ -9,7 +9,7 @@ import (
 )
 
 
-func (ai ConvAI) Stream(prompt string) <-chan string  {
+func (ai ConvAI) Stream(prompt string, ipcChan chan string)  {
 	kwargs := make([]map[string]interface{}, 5)
 	for key := range ai.ModelType {
 		switch key {
@@ -61,6 +61,6 @@ func (ai ConvAI) Stream(prompt string) <-chan string  {
 	chatData,_ := mongoMemory.RetrieveMemoryWithK( "", 6)
 	promptMap["chat_history"] = []byte(chatData)
 	promptTemplate := utilities.CustomFormat(ai.ChatInstruction, promptMap)
-	respChan := llm.StreamChat(string(ai.APIKey),string(promptTemplate), string(ai.ChatSystemInstruction))
-	return respChan
+	llm.StreamChat(string(ai.APIKey),string(promptTemplate), string(ai.ChatSystemInstruction),ipcChan)
+
 }

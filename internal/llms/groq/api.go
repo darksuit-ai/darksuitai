@@ -1,6 +1,8 @@
 package groq
 
-import "github.com/darksuit-ai/darksuitai/internal/llms/groq/types"
+import (
+	"github.com/darksuit-ai/darksuitai/internal/llms/groq/types"
+)
 
 // ChatError represents a chat-related error.
 type ClientChatError struct {
@@ -10,7 +12,6 @@ type ClientChatError struct {
 type GroqChatArgs struct {
 	types.ChatArgs
 }
-
 
 func ChatGroq(kwargs ...map[string]interface{}) GroqChatArgs {
 	var args types.ChatArgs
@@ -85,7 +86,7 @@ func (params GroqChatArgs) StreamCompleteChat(apiKey string, prompt string, syst
 }
 
 // StreamChat sends a prompt to the stream chat client and returns the response.
-func (params GroqChatArgs) StreamChat(apiKey string, prompt string, system string) <-chan string {
+func (params GroqChatArgs) StreamChat(apiKey string, prompt string, system string, ipcChan chan string) {
 
 	if params.ChatArgs.Messages == nil {
 		params.ChatArgs.Messages = make([]types.Message, 0)
@@ -98,15 +99,6 @@ func (params GroqChatArgs) StreamChat(apiKey string, prompt string, system strin
 	}
 
 	params.Stream = true
-	chunkchan := make(chan string)
+	go StreamClient(apiKey, params.ChatArgs, ipcChan)
 
-	go func() {
-		defer close(chunkchan)
-		err := StreamClient(apiKey, params.ChatArgs, chunkchan)
-		if err != nil {
-			chunkchan <- err.Error()
-		}
-	}()
-
-	return chunkchan
 }
