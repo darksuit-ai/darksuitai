@@ -1,8 +1,6 @@
 package openai
 
-import (
-	"github.com/darksuit-ai/darksuitai/internal/llms/openai/types"
-)
+import "github.com/darksuit-ai/darksuitai/internal/llms/openai/types"
 
 // ChatError represents a chat-related error.
 type ClientChatError struct {
@@ -99,6 +97,5 @@ func (params OAIChatArgs) StreamChat(apiKey string, prompt string, system string
 	}
 
 	params.Stream = true
-
 	go StreamClient(apiKey, params.ChatArgs, ipcChan)
 }

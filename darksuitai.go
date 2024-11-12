@@ -2,9 +2,6 @@ package darksuitai
 
 import (
 	"fmt"
-	"strings"
-	"sync"
-
 	"github.com/darksuit-ai/darksuitai/internal"
 	"github.com/darksuit-ai/darksuitai/internal/memory/mongodb"
 	"github.com/darksuit-ai/darksuitai/pkg/agent"
@@ -15,6 +12,8 @@ import (
 	"github.com/darksuit-ai/darksuitai/pkg/tools"
 	"github.com/darksuit-ai/darksuitai/types"
 	"go.mongodb.org/mongo-driver/mongo"
+	"strings"
+	"sync"
 )
 
 // Create an instance of the DarkSuitAgent interface
@@ -409,7 +408,6 @@ func (a *AgentSynapse) Stream(input string) (<-chan string, error) {
 		}
 	}()
 
-	fmt.Println(input, builder.String(), a._streamAgentPreProgram.SessionId)
 	a._streamAgentPreProgram.SaveChatHistory(input, builder.String(), a._streamAgentPreProgram.SessionId)
 	return outputChan, nil
 }
@@ -423,7 +421,6 @@ func (d *LLM) Chat(prompt string) (string, error) {
 func (d *LLM) Stream(prompt string) <-chan string {
 	outputChan := make(chan string)
 	go func() {
-		defer close(outputChan)
 		d.ai.Stream(prompt, outputChan)
 	}()
 	return outputChan
@@ -438,7 +435,6 @@ func (d *ConvLLM) Chat(prompt string) (string, error) {
 func (d *ConvLLM) Stream(prompt string) <-chan string {
 	outputChan := make(chan string)
 	go func() {
-		defer close(outputChan)
 		d.convai.Stream(prompt, outputChan)
 	}()
 	return outputChan

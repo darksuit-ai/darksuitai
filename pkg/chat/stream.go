@@ -10,7 +10,7 @@ import (
 	"github.com/darksuit-ai/darksuitai/internal/utilities"
 )
 
-func (ai AI) Stream(prompt string, ipcChan chan string){
+func (ai AI) Stream(prompt string, ipcChan chan string) {
 	kwargs := make([]map[string]interface{}, 5)
 	for key := range ai.ModelType {
 		switch key {
@@ -57,18 +57,20 @@ func (ai AI) Stream(prompt string, ipcChan chan string){
 		}
 	}
 	promptMap := ai.PromptKeys
-	promptMap["query"] = []byte(prompt)
+	if prompt != "" {
+		promptMap["query"] = []byte(prompt)
+	}
 	if ai.ChatInstruction == nil {
 		internalPrompts, err := prompts.LoadPromptConfigs()
 		if err != nil {
-	
-		ipcChan <- fmt.Sprintf("error loading config: %v", err)
-		
+
+			ipcChan <- fmt.Sprintf("error loading config: %v", err)
+
 		}
 
 		ai.ChatInstruction = internalPrompts.CHATINSTRUCTION
 	}
 	promptTemplate := utilities.CustomFormat(ai.ChatInstruction, promptMap)
-llm.StreamChat(string(ai.APIKey), string(promptTemplate), string(ai.ChatSystemInstruction),ipcChan)
+	llm.StreamChat(string(ai.APIKey), string(promptTemplate), string(ai.ChatSystemInstruction), ipcChan)
 
 }
