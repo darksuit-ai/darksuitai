@@ -247,18 +247,20 @@ func StreamCompleteClient(apiKey string, req types.ChatArgs) (string, error) {
 	return finalResult, nil
 }
 
-func StreamClient(apiKey string, req types.ChatArgs, chunkchan chan string) error {
+func StreamClient(apiKey string, req types.ChatArgs, chunkChan chan string) {
+	// Ensure we close the channel when we're done
+	defer close(chunkChan)
 	checkEnvVar()
 	// Marshal the payload to JSON
 	reqJsonPayload, err := json.Marshal(req)
 	if err != nil {
-		return err
+		chunkChan <- err.Error()
 	}
 
 	// Create a new HTTP request
 	request, err := http.NewRequest("POST", "https://api.openai.com/v1/chat/completions", bytes.NewBuffer([]byte(reqJsonPayload)))
 	if err != nil {
-		return err
+		chunkChan <- err.Error()
 	}
 	if apiKey == "" {
 		apiKey = os.Getenv("OPENAI_API_KEY")
@@ -273,7 +275,7 @@ func StreamClient(apiKey string, req types.ChatArgs, chunkchan chan string) erro
 	// Make the request
 	resp, err := retryRequest(httpClient, request)
 	if err != nil {
-		return err
+		chunkChan <- err.Error()
 	}
 	defer resp.Body.Close()
 
@@ -281,28 +283,29 @@ func StreamClient(apiKey string, req types.ChatArgs, chunkchan chan string) erro
 		// Read the response body
 		bodyBytes, err := io.ReadAll(resp.Body)
 		if err != nil {
-			return err
+			chunkChan <- err.Error()
 		}
 
-		chunkchan <- string(bodyBytes)
+		chunkChan <- string(bodyBytes)
 	}
+
 	// Check if the response status indicates an error
 	if resp.StatusCode >= 400 {
 		var clientErr types.ErrorResponse
 		if err := json.NewDecoder(resp.Body).Decode(&clientErr); err != nil {
-			return err
+			chunkChan <- err.Error()
 		}
 
 		fmt.Println(clientErr.Error.Message)
-		return fmt.Errorf(clientErr.Error.Message)
+		chunkChan <- clientErr.Error.Message
 	}
 	// Use a scanner to read the streaming response
 	scanner := bufio.NewScanner(resp.Body)
-
+	
 	for scanner.Scan() {
 
 		line := scanner.Bytes()
-
+		
 		if bytes.HasPrefix(line, []byte(`event: message_stop)`)) {
 			break
 		}
@@ -316,12 +319,12 @@ func StreamClient(apiKey string, req types.ChatArgs, chunkchan chan string) erro
 			}
 			var chunk types.ChatCompletionChunk
 			if err := json.Unmarshal(data, &chunk); err != nil {
-				return err
+				chunkChan <- err.Error()
 			}
-			chunkchan <- chunk.Choices[0].Delta.Content
+
+			chunkChan <- chunk.Choices[0].Delta.Content
 
 		}
 
 	}
-	return nil
 }

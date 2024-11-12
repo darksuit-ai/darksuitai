@@ -10,7 +10,7 @@ import (
 	"github.com/darksuit-ai/darksuitai/internal/utilities"
 )
 
-func (ai AI) Stream(prompt string) <-chan string {
+func (ai AI) Stream(prompt string, ipcChan chan string){
 	kwargs := make([]map[string]interface{}, 5)
 	for key := range ai.ModelType {
 		switch key {
@@ -61,14 +61,14 @@ func (ai AI) Stream(prompt string) <-chan string {
 	if ai.ChatInstruction == nil {
 		internalPrompts, err := prompts.LoadPromptConfigs()
 		if err != nil {
-		errorChan := make(chan string, 1)
-		errorChan <- fmt.Sprintf("error loading config: %v", err)
-		return errorChan
+	
+		ipcChan <- fmt.Sprintf("error loading config: %v", err)
+		
 		}
 
 		ai.ChatInstruction = internalPrompts.CHATINSTRUCTION
 	}
 	promptTemplate := utilities.CustomFormat(ai.ChatInstruction, promptMap)
-	respChan := llm.StreamChat(string(ai.APIKey), string(promptTemplate), string(ai.ChatSystemInstruction))
-	return respChan
+llm.StreamChat(string(ai.APIKey), string(promptTemplate), string(ai.ChatSystemInstruction),ipcChan)
+
 }

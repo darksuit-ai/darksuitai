@@ -263,7 +263,10 @@ func StreamCompleteClient(apiKey string, req types.ChatArgs) (string, error) {
 	return finalResult, nil
 }
 
-func StreamClient(apiKey string, req types.ChatArgs, chunkchan chan string) error {
+func StreamClient(apiKey string, req types.ChatArgs, chunkChan chan string) error {
+	// Ensure we close the channel when we're done
+	defer close(chunkChan)
+	
 	checkEnvVar()
 	// Marshal the payload to JSON
 	reqJsonPayload, err := json.Marshal(req)
@@ -317,7 +320,7 @@ func StreamClient(apiKey string, req types.ChatArgs, chunkchan chan string) erro
 		errorMessage := clientErr.Error.Message
 		fmt.Println(errorMessage)
 
-		chunkchan <- errorMessage
+		chunkChan <- errorMessage
 
 	}
 	// Use a scanner to read the streaming response
@@ -332,7 +335,7 @@ func StreamClient(apiKey string, req types.ChatArgs, chunkchan chan string) erro
 			data := bytes.TrimPrefix(line, []byte(`data: `))
 			var chunk types.ContentBlockDelta
 			if err := json.Unmarshal(data, &chunk); err != nil {
-				chunkchan <- err.Error()
+				chunkChan <- err.Error()
 			}
 			if chunk.Type == "ping" {
 				continue
@@ -341,14 +344,14 @@ func StreamClient(apiKey string, req types.ChatArgs, chunkchan chan string) erro
 				continue
 			}
 			if chunk.Type == "content_block_delta" {
-				chunkchan <- chunk.Delta["text"]
+				chunkChan <- chunk.Delta["text"]
 
 			}
 		} else if bytes.HasPrefix(line, []byte(`event: error)`)) {
 			data := bytes.TrimPrefix(line, []byte(`data: `))
 			var chunk types.ChatOverloadError
 			if err := json.Unmarshal(data, &chunk); err != nil {
-				chunkchan <- err.Error()
+				chunkChan <- err.Error()
 			}
 		}
 	}

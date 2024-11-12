@@ -79,7 +79,7 @@ func (params AnthChatArgs) StreamCompleteChat(apiKey string, prompt string, syst
 	return response, err
 }
 
-func (params AnthChatArgs) StreamChat(apiKey string, prompt string, system string) <-chan string {
+func (params AnthChatArgs) StreamChat(apiKey string, prompt string, system string, ipcChan chan string){
 	if params.ChatArgs.Messages == nil {
 		params.ChatArgs.Messages = make([]types.Message, 0)
 	}
@@ -90,15 +90,5 @@ func (params AnthChatArgs) StreamChat(apiKey string, prompt string, system strin
 	}
 
 	params.Stream = true
-	chunkchan := make(chan string)
-
-	go func() {
-		defer close(chunkchan)
-		err := StreamClient(apiKey,params.ChatArgs, chunkchan)
-		if err != nil {
-			chunkchan <- err.Error()
-		}
-	}()
-
-	return chunkchan
+	go StreamClient(apiKey, params.ChatArgs, ipcChan)
 }

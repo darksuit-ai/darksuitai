@@ -2,12 +2,14 @@ package darksuitai
 
 import (
 	"fmt"
+	"strings"
 	"sync"
 
 	"github.com/darksuit-ai/darksuitai/internal"
 	"github.com/darksuit-ai/darksuitai/internal/memory/mongodb"
 	"github.com/darksuit-ai/darksuitai/pkg/agent"
 	"github.com/darksuit-ai/darksuitai/pkg/agent/_chat"
+	"github.com/darksuit-ai/darksuitai/pkg/agent/_stream"
 	ai "github.com/darksuit-ai/darksuitai/pkg/chat"
 	convai "github.com/darksuit-ai/darksuitai/pkg/convchat"
 	"github.com/darksuit-ai/darksuitai/pkg/tools"
@@ -227,8 +229,9 @@ type ConvLLM struct {
 }
 
 type AgentSynapse struct {
-	synapse              agent.Synapse
-	_chatAgentPreProgram _chat.AgentPreProgram
+	synapse                agent.Synapse
+	_chatAgentPreProgram   _chat.AgentPreProgram
+	_streamAgentPreProgram _stream.AgentPreProgram
 }
 
 // NewLLM creates a new instance of DarkSuitAI LLM
@@ -309,6 +312,19 @@ func (a *AgentSynapse) Program(maxIteration int, sessionId string, verbose bool)
 		Verbose:              verbose,
 		SessionId:            sessionId,
 	}
+	a._streamAgentPreProgram = _stream.AgentPreProgram{
+		BasePrompt:           basePrompt,
+		SystemPrompt:         sysPrompt,
+		Tools:                tools,
+		ToolNames:            toolNames,
+		AdditionalToolsMeta:  ToolNodesMeta,
+		BaseRunnableCaller:   a.synapse.BaseStream,
+		RunnableCaller:       a.synapse.StreamIterable,
+		MaxIteration:         maxIteration,
+		ChatMemoryCollection: a.synapse.MongoDB,
+		Verbose:              verbose,
+		SessionId:            sessionId,
+	}
 	return nil
 }
 
@@ -333,6 +349,71 @@ func (a *AgentSynapse) Chat(input string) (string, any, error) {
 	return string(response), toolData, nil
 }
 
+func NewStreamWriter() *_stream.StreamWriter {
+	return &_stream.StreamWriter{
+		Builder: &strings.Builder{},
+		Ch:      make(chan string, 100),
+		Done:    make(chan struct{}),
+	}
+}
+
+func (a *AgentSynapse) Stream(input string) (<-chan string, error) {
+	streamWriter := NewStreamWriter()
+	outputChan := make(chan string)
+	var builder strings.Builder
+	// Add to wait group before starting goroutines
+	streamWriter.Wg.Add(2)
+
+	// Start the streaming goroutine
+	go func() {
+		defer streamWriter.Wg.Done() // Mark this goroutine as done when it exits
+		defer streamWriter.Close()   // This will now safely close only once
+
+		err := a._streamAgentPreProgram.StreamExecutor(
+			map[string][]byte{"question": []byte(input)},
+			streamWriter,
+			a._streamAgentPreProgram.MaxIteration,
+			a._streamAgentPreProgram.Verbose,
+		)
+
+		if err != nil {
+			select {
+			case outputChan <- fmt.Sprintf("Error: %v", err):
+			case <-streamWriter.Done:
+			}
+		}
+	}()
+
+	// Start the forwarding goroutine
+	go func() {
+		defer streamWriter.Wg.Done()
+		defer close(outputChan)
+
+		for {
+			select {
+			case chunk, ok := <-streamWriter.Ch:
+				if !ok {
+					return
+				}
+				builder.WriteString(chunk)
+				select {
+				case outputChan <- strings.TrimSuffix(builder.String(), "</answer>"):
+					builder.Reset()
+				case <-streamWriter.Done:
+					return
+
+				}
+			case <-streamWriter.Done:
+				return
+			}
+		}
+	}()
+
+	fmt.Println(input, builder.String(), a._streamAgentPreProgram.SessionId)
+	a._streamAgentPreProgram.SaveChatHistory(input, builder.String(), a._streamAgentPreProgram.SessionId)
+	return outputChan, nil
+}
+
 // Chat LLM exposes the LLM method for chat
 func (d *LLM) Chat(prompt string) (string, error) {
 	return d.ai.Chat(prompt)
@@ -340,7 +421,12 @@ func (d *LLM) Chat(prompt string) (string, error) {
 
 // Stream LLM exposes the LLM method for chat stream
 func (d *LLM) Stream(prompt string) <-chan string {
-	return d.ai.Stream(prompt)
+	outputChan := make(chan string)
+	go func() {
+		defer close(outputChan)
+		d.ai.Stream(prompt, outputChan)
+	}()
+	return outputChan
 }
 
 // Chat ConvLLM exposes the LLM method for conversational chat
@@ -350,5 +436,10 @@ func (d *ConvLLM) Chat(prompt string) (string, error) {
 
 // Stream ConvLLM exposes the LLM method for conversational chat stream
 func (d *ConvLLM) Stream(prompt string) <-chan string {
-	return d.convai.Stream(prompt)
+	outputChan := make(chan string)
+	go func() {
+		defer close(outputChan)
+		d.convai.Stream(prompt, outputChan)
+	}()
+	return outputChan
 }
