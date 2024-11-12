@@ -60,16 +60,6 @@ func (a *PromptAgent) PreparePrompt(SystemPrompt []byte, ChatInstructionPrompt [
 		SystemPrompt = internalPrompts.AGENTSYSTEMINSTRUCTION
 	}
 
-	if sessionId != "" {
-		var mongoMemory mongodb.ChatMemoryCollectionInterface = mongodb.NewMongoCollection(mongoCollection)
-		// If the session ID is available, retrieve the chat history with a limit of 6 entries
-		chatData, retrieveErr := mongoMemory.RetrieveMemoryWithK(sessionId, 6)
-		if retrieveErr != nil {
-
-		}
-		chatHistory.WriteString(chatData)
-	}
-
 	// Render the tool names
 	tl, tn := RenderToolNames(agentTools)
 
@@ -79,9 +69,23 @@ func (a *PromptAgent) PreparePrompt(SystemPrompt []byte, ChatInstructionPrompt [
 	}
 
 	promptMap = map[string][]byte{
-		"tool_names":   []byte(tn),
-		"tools":        []byte(tl),
-		"chat_history": chatHistory.Bytes(),
+		"tool_names": []byte(tn),
+		"tools":      []byte(tl),
+	}
+
+	if injectedChatHistory, exists := promptMap["chat_history"]; exists {
+		if injectedChatHistory == nil {
+			if (sessionId != "") && (mongoCollection != nil) {
+				var mongoMemory mongodb.ChatMemoryCollectionInterface = mongodb.NewMongoCollection(mongoCollection)
+				// If the session ID is available, retrieve the chat history with a limit of 6 entries
+				chatData, retrieveErr := mongoMemory.RetrieveMemoryWithK(sessionId, 6)
+				if retrieveErr != nil {
+
+				}
+				chatHistory.WriteString(chatData)
+				promptMap["chat_history"] = chatHistory.Bytes()
+			}
+		}
 	}
 
 	if _, exists := PromptKeys["timeZone"]; exists {
@@ -95,6 +99,7 @@ func (a *PromptAgent) PreparePrompt(SystemPrompt []byte, ChatInstructionPrompt [
 		}
 
 	}
+
 	// Format the instruction prompt with the prepared prompt map
 	llmPrompt := utilities.CustomFormat(ChatInstructionPrompt, promptMap)
 
