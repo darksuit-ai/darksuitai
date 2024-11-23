@@ -11,7 +11,6 @@ import (
 	"math/rand"
 	"net"
 	"net/http"
-	"os"
 	"strings"
 	"sync"
 	"time"
@@ -84,9 +83,8 @@ func calculateRetryTimeout(retryCount int) time.Duration {
 	return time.Duration(jitter) * time.Second
 }
 
-func checkEnvVar() {
+func checkEnvVar(openaiAPIKey string) {
 	// Check for the required environment variable
-	openaiAPIKey := os.Getenv("OPENAI_API_KEY")
 	if openaiAPIKey == "" {
 		log.Fatal(`
 OPENAI_API_KEY is not set or is empty. 
@@ -101,7 +99,7 @@ If you don't have a .env file, create one in the root directory of your project.
 }
 
 func Client(apiKey string, req types.ChatArgs) (string, error) {
-	checkEnvVar()
+	checkEnvVar(apiKey)
 	// Wait for rate limiter
 	//rateLimiter.Wait()
 	// Marshal the payload to JSON
@@ -116,10 +114,6 @@ func Client(apiKey string, req types.ChatArgs) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("error creating HTTP request: %w", err)
 	}
-	if apiKey == "" {
-		apiKey = os.Getenv("OPENAI_API_KEY")
-	}
-
 	// Set request headers
 	request.Header.Set("Authorization", fmt.Sprintf("Bearer %s", apiKey))
 	request.Header.Set("Content-Type", "application/json")
@@ -166,7 +160,7 @@ func Client(apiKey string, req types.ChatArgs) (string, error) {
 }
 
 func StreamCompleteClient(apiKey string, req types.ChatArgs) (string, error) {
-	checkEnvVar()
+	checkEnvVar(apiKey)
 	// Marshal the payload to JSON
 	reqJsonPayload, err := json.Marshal(req)
 	if err != nil {
@@ -177,10 +171,6 @@ func StreamCompleteClient(apiKey string, req types.ChatArgs) (string, error) {
 	request, err := http.NewRequest("POST", "https://api.openai.com/v1/chat/completions", bytes.NewBuffer([]byte(reqJsonPayload)))
 	if err != nil {
 		return "", fmt.Errorf("error creating HTTP request: %w", err)
-	}
-
-	if apiKey == "" {
-		apiKey = os.Getenv("OPENAI_API_KEY")
 	}
 
 	// Set request headers
@@ -250,7 +240,7 @@ func StreamCompleteClient(apiKey string, req types.ChatArgs) (string, error) {
 func StreamClient(apiKey string, req types.ChatArgs, chunkChan chan string) {
 	// Ensure we close the channel when we're done
 	defer close(chunkChan)
-	checkEnvVar()
+	checkEnvVar(apiKey)
 	// Marshal the payload to JSON
 	reqJsonPayload, err := json.Marshal(req)
 	if err != nil {
@@ -262,9 +252,7 @@ func StreamClient(apiKey string, req types.ChatArgs, chunkChan chan string) {
 	if err != nil {
 		chunkChan <- err.Error()
 	}
-	if apiKey == "" {
-		apiKey = os.Getenv("OPENAI_API_KEY")
-	}
+
 	// Set request headers
 	request.Header.Set("Accept", "text/event-stream")
 	request.Header.Set("Content-Type", "application/json")

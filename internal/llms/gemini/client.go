@@ -11,11 +11,9 @@ import (
 	"math/rand"
 	"net"
 	"net/http"
-	"os"
 	"strings"
 	"sync"
 	"time"
-
 	"github.com/darksuit-ai/darksuitai/internal/llms/gemini/types"
 )
 
@@ -84,10 +82,9 @@ func calculateRetryTimeout(retryCount int) time.Duration {
 	return time.Duration(jitter) * time.Second
 }
 
-func checkEnvVar() {
+func checkEnvVar(geminiAPIKey string) {
 	// Check for the required environment variable
-	openaiAPIKey := os.Getenv("GEMINI_API_KEY")
-	if openaiAPIKey == "" {
+	if geminiAPIKey == "" {
 		log.Fatal(`
 GEMINI_API_KEY is not set or is empty. 
 Please set it in the .env file as follows:
@@ -101,7 +98,7 @@ If you don't have a .env file, create one in the root directory of your project.
 }
 
 func Client(apiKey string, req types.ChatArgs) (string, error) {
-	checkEnvVar()
+	checkEnvVar(apiKey)
 	// Wait for rate limiter
 	//rateLimiter.Wait()
 	// Marshal the payload to JSON
@@ -115,9 +112,6 @@ func Client(apiKey string, req types.ChatArgs) (string, error) {
 	request, err := http.NewRequest("POST", "https://generativelanguage.googleapis.com/v1beta/chat/completions", bytes.NewBuffer([]byte(reqJsonPayload)))
 	if err != nil {
 		return "", fmt.Errorf("error creating HTTP request: %w", err)
-	}
-	if apiKey == "" {
-		apiKey = os.Getenv("GEMINI_API_KEY")
 	}
 
 	// Set request headers
@@ -165,7 +159,7 @@ func Client(apiKey string, req types.ChatArgs) (string, error) {
 }
 
 func StreamCompleteClient(apiKey string, req types.ChatArgs) (string, error) {
-	checkEnvVar()
+	checkEnvVar(apiKey)
 	// Marshal the payload to JSON
 	reqJsonPayload, err := json.Marshal(req)
 	if err != nil {
@@ -176,10 +170,6 @@ func StreamCompleteClient(apiKey string, req types.ChatArgs) (string, error) {
 	request, err := http.NewRequest("POST", "https://generativelanguage.googleapis.com/v1beta/chat/completions", bytes.NewBuffer([]byte(reqJsonPayload)))
 	if err != nil {
 		return "", fmt.Errorf("error creating HTTP request: %w", err)
-	}
-
-	if apiKey == "" {
-		apiKey = os.Getenv("GEMINI_API_KEY")
 	}
 
 	// Set request headers
@@ -248,7 +238,7 @@ func StreamCompleteClient(apiKey string, req types.ChatArgs) (string, error) {
 func StreamClient(apiKey string, req types.ChatArgs, chunkChan chan string) error {
 	// Ensure we close the channel when we're done
 	defer close(chunkChan)
-	checkEnvVar()
+	checkEnvVar(apiKey)
 	// Marshal the payload to JSON
 	reqJsonPayload, err := json.Marshal(req)
 	if err != nil {
@@ -260,9 +250,7 @@ func StreamClient(apiKey string, req types.ChatArgs, chunkChan chan string) erro
 	if err != nil {
 		return err
 	}
-	if apiKey == "" {
-		apiKey = os.Getenv("GEMINI_API_KEY")
-	}
+
 	// Set request headers
 	request.Header.Set("Accept", "text/event-stream")
 	request.Header.Set("Content-Type", "application/json")
