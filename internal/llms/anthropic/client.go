@@ -11,13 +11,11 @@ import (
 	"math/rand"
 	"net"
 	"net/http"
-	"os"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/darksuit-ai/darksuitai/internal/llms/anthropic/types"
-	"github.com/joho/godotenv"
 )
 
 // RateLimiter is a simple rate limiter implementation
@@ -61,12 +59,7 @@ var httpClient = &http.Client{
 	Timeout:   0, // No timeout for streaming; use context for control
 }
 
-func init() {
-	// Load environment variables once during initialization
-	if err := godotenv.Load(".env"); err != nil {
-		panic(fmt.Sprintf("error loading .env file: %v", err))
-	}
-}
+
 
 func retryRequest(client *http.Client, req *http.Request) (*http.Response, error) {
 	var resp *http.Response
@@ -92,9 +85,8 @@ func calculateRetryTimeout(retryCount int) time.Duration {
 	return time.Duration(jitter) * time.Second
 }
 
-func checkEnvVar() {
+func checkEnvVar(anthropicAPIKey string) {
 	// Check for the required environment variable
-	anthropicAPIKey := os.Getenv("ANTHROPIC_API_KEY")
 	if anthropicAPIKey == "" {
 		log.Fatal(`
 ANTHROPIC_API_KEY is not set or is empty. 
@@ -109,7 +101,7 @@ If you don't have a .env file, create one in the root directory of your project.
 }
 
 func Client(apiKey string, req types.ChatArgs) (string, error) {
-	checkEnvVar()
+	checkEnvVar(apiKey)
 	// Wait for rate limiter
 	//rateLimiter.Wait()
 	// Marshal the payload to JSON
@@ -124,9 +116,7 @@ func Client(apiKey string, req types.ChatArgs) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("error creating HTTP request: %w", err)
 	}
-	if apiKey == "" {
-		apiKey = os.Getenv("ANTHROPIC_API_KEY")
-	}
+
 	// Set request headers
 	request.Header.Set("x-api-key", apiKey)
 	request.Header.Set("Content-Type", "application/json")
@@ -176,7 +166,7 @@ func Client(apiKey string, req types.ChatArgs) (string, error) {
 }
 
 func StreamCompleteClient(apiKey string, req types.ChatArgs) (string, error) {
-	checkEnvVar()
+	checkEnvVar(apiKey)
 	// Marshal the payload to JSON
 	reqJsonPayload, err := json.Marshal(req)
 	if err != nil {
@@ -188,9 +178,7 @@ func StreamCompleteClient(apiKey string, req types.ChatArgs) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("error creating HTTP request: %w", err)
 	}
-	if apiKey == "" {
-		apiKey = os.Getenv("ANTHROPIC_API_KEY")
-	}
+
 	// Set request headers
 	request.Header.Set("Content-Type", "application/json")
 	request.Header.Set("Accept", "text/event-stream")
@@ -267,7 +255,7 @@ func StreamClient(apiKey string, req types.ChatArgs, chunkChan chan string) erro
 	// Ensure we close the channel when we're done
 	defer close(chunkChan)
 	
-	checkEnvVar()
+	checkEnvVar(apiKey)
 	// Marshal the payload to JSON
 	reqJsonPayload, err := json.Marshal(req)
 	if err != nil {
@@ -279,9 +267,7 @@ func StreamClient(apiKey string, req types.ChatArgs, chunkChan chan string) erro
 	if err != nil {
 		return err
 	}
-	if apiKey == "" {
-		apiKey = os.Getenv("ANTHROPIC_API_KEY")
-	}
+
 	// Set request headers
 	request.Header.Set("Content-Type", "application/json")
 	request.Header.Set("Accept", "text/event-stream")
