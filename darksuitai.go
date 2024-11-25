@@ -276,6 +276,7 @@ func (cargs *LLMArgs) NewSuitedAgent() (*AgentSynapse, error) {
 			ToolNodes:             ToolNodes,
 			MongoDB:               cargs.MongoDB,
 			ModelKwargs:           cargs.ModelKwargs,
+			APIKey:                cargs.APIKey,
 		},
 	}, nil
 }
