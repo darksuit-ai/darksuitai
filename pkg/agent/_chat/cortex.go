@@ -12,7 +12,6 @@ import (
 	"github.com/darksuit-ai/darksuitai/pkg/agent"
 	"github.com/darksuit-ai/darksuitai/pkg/tools"
 	"go.mongodb.org/mongo-driver/mongo"
-	"log"
 )
 
 /*
@@ -88,12 +87,10 @@ func _getToolReturn(agentTools map[string]tools.BaseTool, toolNames, action, act
 func (prePrompt *AgentPreProgram) Executor(queryPrompt map[string][]byte, sessionId string, maxIterations int, verbose bool) ([]byte, any, error) {
 
 	var (
-		wg sync.WaitGroup
-		// Initialize a byte slice to store the agent's thought processes
-		agentThoughtProcesses []byte
-
+		wg          sync.WaitGroup
+		actionReady bool
 		// Initialize a byte slice to store the LLM's response
-		llmResponse []byte
+		newllmResponse []byte
 
 		// Initialize a byte slice to store the initial message
 		initMessage []byte
@@ -108,34 +105,67 @@ func (prePrompt *AgentPreProgram) Executor(queryPrompt map[string][]byte, sessio
 
 	prePrompt.AIIdentity = []byte("\nAI: ")
 
-	// Anti-looping safeguards
-	lastToolResponseHash := ""
-
 	clm = prePrompt
 	// Call the LLM with the query prompt and store the initial message and LLM's response
-	initMessage, llmResponse, callErr = clm._callLanguageModel(queryPrompt)
+	initMessage, llmResponse, callErr := clm._callLanguageModel(queryPrompt)
 
 	if callErr != nil {
 		return nil, nil, callErr
 	}
+	agentActionTypes, _, neupErr := agent.NeuralParser(llmResponse, true)
 
-	// TODO: Allow LLM call for action determine iteration count by updating the maxIteraion var everytime
-	//  it calls action and reset to zero when it calls final answer
-	for i := 0; i < maxIterations; i++ {
-		var agentActionTypes *agent.AgentActionTypes
+	if neupErr != nil {
+		return nil, nil, neupErr
+	}
 
-		agentActionTypes, _, neupErr := agent.NeuralParser(llmResponse, true)
+	if finish, ok := agentActionTypes.AgentFinish["Output"]; ok {
+		if verbose {
+			utilities.Printer("", string(finish), "green")
+		}
+
+		finish = bytes.ReplaceAll(finish, []byte("<answer>"), []byte(""))
+		finish = bytes.ReplaceAll(finish, []byte("</answer>"), []byte(""))
+
+		if prePrompt.ChatMemoryCollection != nil {
+			// Create local copies of variables needed in goroutine
+			memoryCollection := prePrompt.ChatMemoryCollection
+			questionCopy := string(queryPrompt["question"])
+			finishCopy := string(finish)
+			// Save the conversation to memory in a separate goroutine
+			wg.Add(1)
+			go func(collection *mongo.Collection, question, finishText string) {
+				defer wg.Done()
+				var mongoMemory mongodb.ChatMemoryCollectionInterface = mongodb.NewMongoCollection(collection)
+				mongoMemory.AddConversationToMemory(sessionId, question, finishText)
+
+			}(memoryCollection, questionCopy, finishCopy)
+		}
+
+		if toolResponseList != nil {
+			return finish, toolResponseList, nil
+		}
+
+		return finish, []string{}, nil
+	}
+
+	_, exists := agentActionTypes.AgentAction["Action"]
+	if exists {
+		actionReady = true
+	}
+
+	for actionReady {
+		if newllmResponse != nil {
+			llmResponse = newllmResponse
+		}
+
+		agentActions, _, neupErr := agent.NeuralParser(llmResponse, true)
 
 		if neupErr != nil {
 			return nil, nil, neupErr
 		}
 
-		// Check if maxIterations is 3 and either AgentFinish or AgentAction is nil, stop the cortext from thinking
-		if i == 3 && (agentActionTypes.AgentFinish == nil || agentActionTypes.AgentAction == nil) {
-			return []byte(`🥺 I missed this one. Can you ask me again?`), nil, nil
-		}
-
-		if finish, ok := agentActionTypes.AgentFinish["Output"]; ok {
+		if finish, ok := agentActions.AgentFinish["Output"]; ok {
+			actionReady = false
 			if verbose {
 				utilities.Printer("", string(finish), "green")
 			}
@@ -166,7 +196,7 @@ func (prePrompt *AgentPreProgram) Executor(queryPrompt map[string][]byte, sessio
 		}
 
 		// TODO: allow the agentActionTypes.AgentAction["Action"] determine number of iterations
-		if action, ok := agentActionTypes.AgentAction["Action"]; ok {
+		if action, ok := agentActions.AgentAction["Action"]; ok {
 
 			toolResponse, rawToolResponse, toolName, err := _getToolReturn(prePrompt.Tools, prePrompt.ToolNames, string(action), string(agentActionTypes.AgentAction["Input"]), prePrompt.AdditionalToolsMeta)
 
@@ -179,35 +209,17 @@ func (prePrompt *AgentPreProgram) Executor(queryPrompt map[string][]byte, sessio
 			}
 			// Append the raw tool response bytes to toolResponseList
 			toolResponseList = append(toolResponseList, map[string]interface{}{toolName: rawToolResponse})
-			// Anti-looping check: Compare current toolResponse with the last one
-			currentToolResponseHash := hashToolResponse(toolResponse)
-			if currentToolResponseHash == lastToolResponseHash {
-				log.Println("Detected repeated toolResponse. Breaking loop.")
-				agentThoughtProcesses = append(agentThoughtProcesses, llmResponse...)
-				agentThoughtProcesses = append(agentThoughtProcesses, []byte("Observation: ")...)
-				agentThoughtProcesses = append(agentThoughtProcesses, []byte(`Sorry about that I got abit distracted. Please ask me again`)...)
-				agentThoughtProcesses = append(agentThoughtProcesses, prePrompt.AIIdentity...)
-				agentPlan := agent.AgentActionTypes{
-					AgentPlan: map[string][]byte{
-						"plan":            agentThoughtProcesses,
-						"initial_message": initMessage,
-					},
-				}
 
-				_, llmResponse, callErr = prePrompt._callLanguageModel(agentPlan.AgentPlan)
-
-				if callErr != nil {
-					return nil, nil, callErr
-				}
-			}
-
-			lastToolResponseHash = currentToolResponseHash
 			if toolResponse != "" {
 				// Build next prompt
-				agentThoughtProcesses = append(agentThoughtProcesses, prePrompt.AIIdentity...)
-				agentThoughtProcesses = append(agentThoughtProcesses, llmResponse...)
-				agentThoughtProcesses = append(agentThoughtProcesses, []byte("\nObservation: ")...)
-				agentThoughtProcesses = append(agentThoughtProcesses, []byte(toolResponse)...)
+				agentThoughtProcesses := append(
+					append(
+						append(prePrompt.AIIdentity, []byte("\n"+string(llmResponse))...),
+						[]byte("\n\nTool Response:\n")...,
+					),
+					[]byte(toolResponse)...,
+				)
+				agentThoughtProcesses = append(agentThoughtProcesses, []byte("\n")...)
 				agentThoughtProcesses = append(agentThoughtProcesses, prePrompt.AIIdentity...)
 
 				agentPlan := agent.AgentActionTypes{
@@ -216,51 +228,15 @@ func (prePrompt *AgentPreProgram) Executor(queryPrompt map[string][]byte, sessio
 						"initial_message": initMessage,
 					},
 				}
-				_, llmResponse, callErr = prePrompt._callLanguageModel(agentPlan.AgentPlan)
+				_, newllmResponse, callErr = prePrompt._callLanguageModel(agentPlan.AgentPlan)
 
 				if callErr != nil {
 					return nil, nil, callErr
 				}
 			}
 		}
-		// TODO: allow the agentActionTypes.AgentAction["Action"] determine number of iterations
-		if errorMessage, ok := agentActionTypes.AgentError["Error"]; ok {
-			if verbose {
-				utilities.Printer("Warning: ", string(errorMessage), "orange")
-			}
 
-			// Build next prompt
-			agentThoughtProcesses = append(agentThoughtProcesses, prePrompt.AIIdentity...)
-			agentThoughtProcesses = append(agentThoughtProcesses, llmResponse...)
-			agentThoughtProcesses = append(agentThoughtProcesses, []byte("\nSystemError: ")...)
-			agentThoughtProcesses = append(agentThoughtProcesses, errorMessage...)
-			agentThoughtProcesses = append(agentThoughtProcesses, prePrompt.AIIdentity...)
-
-			agentPlan := agent.AgentActionTypes{
-				AgentPlan: map[string][]byte{
-					"plan":            agentThoughtProcesses,
-					"initial_message": initMessage,
-				},
-			}
-			_, llmResponse, callErr = prePrompt._callLanguageModel(agentPlan.AgentPlan)
-
-			if callErr != nil {
-				return nil, nil, callErr
-			}
-
-		}
 	}
 	wg.Wait()
-	fmt.Println("Iteration limit exceeded")
 	return nil, nil, nil
-}
-
-// hashToolResponse generates a SHA-256 hash of the given toolResponse and returns it as a hexadecimal string.
-func hashToolResponse(toolResponse string) string {
-	// Create a new SHA-256 hash.
-	h := sha256.New()
-	// Write the thought byte slice to the hash.
-	h.Write([]byte(toolResponse))
-	// Compute the final hash and return it as a hexadecimal string.
-	return fmt.Sprintf("%x", h.Sum(nil))
 }
