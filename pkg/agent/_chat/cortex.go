@@ -86,7 +86,7 @@ func (prePrompt *AgentPreProgram) Executor(queryPrompt map[string][]byte, sessio
 
 	var (
 		wg sync.WaitGroup
-
+    
 		actionReady bool
 		// Initialize a byte slice to store the LLM's response
 		newllmResponse []byte
@@ -138,6 +138,7 @@ func (prePrompt *AgentPreProgram) Executor(queryPrompt map[string][]byte, sessio
 				mongoMemory.AddConversationToMemory(sessionId, question, finishText)
 
 			}(memoryCollection, questionCopy, finishCopy)
+      
 		}
 
 		if toolResponseList != nil {
