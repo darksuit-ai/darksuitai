@@ -2,8 +2,6 @@ package _chat
 
 import (
 	"bytes"
-	"crypto/sha256"
-	"fmt"
 	"strings"
 	"sync"
 
@@ -87,7 +85,8 @@ func _getToolReturn(agentTools map[string]tools.BaseTool, toolNames, action, act
 func (prePrompt *AgentPreProgram) Executor(queryPrompt map[string][]byte, sessionId string, maxIterations int, verbose bool) ([]byte, any, error) {
 
 	var (
-		wg          sync.WaitGroup
+		wg sync.WaitGroup
+
 		actionReady bool
 		// Initialize a byte slice to store the LLM's response
 		newllmResponse []byte
