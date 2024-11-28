@@ -2,12 +2,7 @@ package mongodb
 
 import (
 	"context"
-	"sort"
-	"strings"
 	"time"
-
-	utl "github.com/darksuit-ai/darksuitai/internal/utilities"
-
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
@@ -17,7 +12,7 @@ import (
 // ChatMemoryCollectionInterface defines the required methods for managing chat memory operations
 type ChatMemoryCollectionInterface interface {
 	AddConversationToMemory(sessionId, prompt, aiMessage string) error
-	RetrieveMemoryWithK(sessionId string, k int64) (string, error)
+	RetrieveMemoryWithK(systemPrompt,sessionId string, k int64) ([]map[string]string, error)
 }
 
 type dataObject struct {
@@ -99,7 +94,7 @@ Returns:
 
 	list: The most recent matching entries in the collection, or None if no match is found or if the entries are older than 1 minute.
 */
-func (mc *MongoCollection) RetrieveMemoryWithK(sessionId string, k int64) (string, error) {
+func (mc *MongoCollection) RetrieveMemoryWithK(systemPrompt,sessionId string, k int64) ([]map[string]string , error) {
 
 	// Query the collection for entries where the sessionId matches and the timestamp is within the last 15 minute
 	query := bson.M{"sessionId": sessionId}
@@ -109,39 +104,36 @@ func (mc *MongoCollection) RetrieveMemoryWithK(sessionId string, k int64) (strin
 	// Sort the results in descending order by timestamp and retrieve the first k results
 	cur, dbErr := mc.collection.Find(context.Background(), query, opts)
 	if dbErr != nil {
-		return "", dbErr
+		return nil, dbErr
 	}
 	// Close the MongoDB cursor after iterating over the results
 	defer cur.Close(context.Background())
 
-	// Initialize a slice to store the chat history
-	var chatHistory []string
+	var multiTurn []map[string]string
+	
+	multiTurn = append(multiTurn, map[string]string{"role":"system","content":systemPrompt})
 
 	// Iterate over the cursor and append the user prompt and AI response to the chat_history slice
 	for cur.Next(context.Background()) {
 		var doc convHistory
 		err := cur.Decode(&doc)
 		if err != nil {
-			return "", dbErr
+			return nil,err
 		}
-
-		chatHistory = append(chatHistory, utl.ConcatWords([]byte(``), []byte(`AI: `), []byte(doc.History.Data.DarksuitResponse)))
-		chatHistory = append(chatHistory, utl.ConcatWords([]byte(``), []byte(`Human: `), []byte(doc.History.Data.UserPrompt)))
+		multiTurn = append(multiTurn, map[string]string{"role":"assistant","content":doc.History.Data.DarksuitResponse})
+		multiTurn = append(multiTurn, map[string]string{"role":"user","content":doc.History.Data.UserPrompt})
 	}
-	// reverse the array
-	sort.Slice(chatHistory, func(i, j int) bool {
-		return i > j
-	})
-
-	// If the chat_history slice is empty, return an empty string
-	if len(chatHistory) == 0 {
-		return "[]", nil
-	}
-
-	// Join the chat_history slice elements into a single string separated by ", "
-	chatHistoryString := utl.ConcatWords([]byte(""), []byte(strings.Join(chatHistory, "\n")))
 
 	// Return the chat_history_string
-	return chatHistoryString, nil
+	return reverseNestedMap(multiTurn), nil
 
+}
+
+
+func reverseNestedMap(multiTurn []map[string]string) []map[string]string {
+	reversed := make([]map[string]string, 0, len(multiTurn)) // Create a slice with the same capacity
+	for i := len(multiTurn) - 1; i >= 0; i-- {
+		reversed = append(reversed, multiTurn[i])
+	}
+	return reversed
 }

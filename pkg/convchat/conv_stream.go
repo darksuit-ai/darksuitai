@@ -1,10 +1,13 @@
 package convchat
 
 import (
+	"fmt"
+
 	ant "github.com/darksuit-ai/darksuitai/internal/llms/anthropic"
 	gro "github.com/darksuit-ai/darksuitai/internal/llms/groq"
 	oai "github.com/darksuit-ai/darksuitai/internal/llms/openai"
 	"github.com/darksuit-ai/darksuitai/internal/memory/mongodb"
+	"github.com/darksuit-ai/darksuitai/internal/prompts"
 	"github.com/darksuit-ai/darksuitai/internal/utilities"
 )
 
@@ -56,11 +59,24 @@ func (ai ConvAI) Stream(prompt string, ipcChan chan string)  {
 		}
 	}
 	promptMap := ai.PromptKeys
+	if prompt != "" {
+		promptMap["query"] = []byte(prompt)
+	}
+	if ai.ChatInstruction == nil {
+		internalPrompts, err := prompts.LoadPromptConfigs()
+		if err != nil {
+
+			ipcChan <- fmt.Sprintf("error loading config: %v", err)
+
+		}
+
+		ai.ChatInstruction = internalPrompts.CHATINSTRUCTION
+	}
 	promptMap["query"] = []byte(prompt)
 	var mongoMemory mongodb.ChatMemoryCollectionInterface = mongodb.NewMongoCollection(ai.MongoDB)
-	chatData,_ := mongoMemory.RetrieveMemoryWithK( "", 6)
-	promptMap["chat_history"] = []byte(chatData)
+	chatHistory,_ := mongoMemory.RetrieveMemoryWithK(string(ai.ChatSystemInstruction), "", 6)
 	promptTemplate := utilities.CustomFormat(ai.ChatInstruction, promptMap)
+	chatHistory = append(chatHistory, map[string]string{"role": "user", "content": string(promptTemplate)})
 	llm.StreamChat(string(ai.APIKey),string(promptTemplate), string(ai.ChatSystemInstruction),ipcChan)
 
 }
