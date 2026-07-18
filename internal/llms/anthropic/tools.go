@@ -120,9 +120,7 @@ func RunToolLoop(cfg ToolLoopConfig, userInput string, specs []ToolSpec, exec To
 		if cfg.System != "" {
 			params.System = []anthropic.TextBlockParam{{Text: cfg.System}}
 		}
-		if cfg.Temperature > 0 {
-			params.Temperature = anthropic.Float(cfg.Temperature)
-		}
+		// temperature intentionally omitted: 2026 Claude models deprecate it.
 
 		message, err := client.Messages.New(context.Background(), params)
 		if err != nil {

@@ -43,11 +43,11 @@ func buildParams(req types.ChatArgs) anthropic.MessageNewParams {
 	if req.System != "" {
 		params.System = []anthropic.TextBlockParam{{Text: req.System}}
 	}
-	// Only set temperature when the caller provided one; otherwise let the API
-	// apply its own default (1.0) instead of forcing 0.0.
-	if req.Temperature > 0 {
-		params.Temperature = anthropic.Float(req.Temperature)
-	}
+	// NOTE: temperature is intentionally NOT sent. Anthropic's 2026 models
+	// (e.g. claude-sonnet-5, claude-opus-4.x) deprecated the `temperature`
+	// parameter and reject requests that include it ("`temperature` is
+	// deprecated for this model"). Sampling is managed by the model. Older
+	// models that accepted temperature still work without it.
 	if stops := toStringSlice(req.StopSequences); len(stops) > 0 {
 		params.StopSequences = stops
 	}

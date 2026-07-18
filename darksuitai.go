@@ -2,6 +2,11 @@ package darksuitai
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
+	"sync"
+
 	"github.com/darksuit-ai/darksuitai/internal"
 	anthropicllm "github.com/darksuit-ai/darksuitai/internal/llms/anthropic"
 	"github.com/darksuit-ai/darksuitai/internal/memory"
@@ -15,10 +20,61 @@ import (
 	convai "github.com/darksuit-ai/darksuitai/pkg/convchat"
 	"github.com/darksuit-ai/darksuitai/pkg/tools"
 	"github.com/darksuit-ai/darksuitai/types"
+	"github.com/joho/godotenv"
 	"go.mongodb.org/mongo-driver/mongo"
-	"strings"
-	"sync"
 )
+
+/*
+LoadEnv loads environment variables from a .env file so that os.Getenv (and the
+provider SDKs, which read keys like ANTHROPIC_API_KEY/OPENAI_API_KEY/
+GEMINI_API_KEY/GROQ_API_KEY from the environment) can see them.
+
+Go does NOT read .env files automatically; call this once at program start.
+
+With no arguments it searches the current working directory and walks up parent
+directories for a ".env" file, so it works whether your app runs from the
+project root or a subdirectory. Pass explicit paths to override the search.
+
+A missing .env is not an error (returns nil); an unparseable file returns an
+error.
+
+Example:
+
+	func main() {
+		_ = darksuitai.LoadEnv() // load .env from project root, if present
+		key := os.Getenv("ANTHROPIC_API_KEY")
+		// ...
+	}
+*/
+func LoadEnv(paths ...string) error {
+	if len(paths) > 0 {
+		return godotenv.Load(paths...)
+	}
+	if found := findDotEnv(); found != "" {
+		return godotenv.Load(found)
+	}
+	return nil
+}
+
+// findDotEnv walks up from the working directory looking for a .env file and
+// returns its path, or "" if none is found.
+func findDotEnv() string {
+	dir, err := os.Getwd()
+	if err != nil {
+		return ""
+	}
+	for {
+		candidate := filepath.Join(dir, ".env")
+		if info, statErr := os.Stat(candidate); statErr == nil && !info.IsDir() {
+			return candidate
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return ""
+		}
+		dir = parent
+	}
+}
 
 // Observability re-exports (Phase 3). These let callers configure telemetry
 // without importing the internal package directly.
