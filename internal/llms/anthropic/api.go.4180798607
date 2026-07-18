@@ -53,7 +53,7 @@ func (params AnthChatArgs) Chat(apiKey string, prompt string, system string) (st
 
 	params.ChatArgs.Messages = append(params.ChatArgs.Messages, types.Message{Role: "user", Content: prompt})
 	if system != "" {
-		params.ChatArgs.System = system
+	params.ChatArgs.System = system
 	}
 
 	params.Stream = false
@@ -71,7 +71,7 @@ func (params AnthChatArgs) StreamCompleteChat(apiKey string, prompt string, syst
 
 	params.ChatArgs.Messages = append(params.ChatArgs.Messages, types.Message{Role: "user", Content: prompt})
 	if system != "" {
-		params.ChatArgs.System = system
+	params.ChatArgs.System = system
 	}
 
 	params.Stream = true
@@ -84,14 +84,14 @@ func (params AnthChatArgs) StreamCompleteChat(apiKey string, prompt string, syst
 	return response, err
 }
 
-func (params AnthChatArgs) StreamChat(apiKey string, prompt string, system string, ipcChan chan string) {
+func (params AnthChatArgs) StreamChat(apiKey string, prompt string, system string, ipcChan chan string){
 	if params.ChatArgs.Messages == nil {
 		params.ChatArgs.Messages = make([]types.Message, 0)
 	}
 
 	params.ChatArgs.Messages = append(params.ChatArgs.Messages, types.Message{Role: "user", Content: prompt})
 	if system != "" {
-		params.ChatArgs.System = system
+	params.ChatArgs.System = system
 	}
 
 	params.Stream = true

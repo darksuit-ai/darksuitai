@@ -24,6 +24,11 @@ func ChatOAI(kwargs ...map[string]interface{}) OAIChatArgs {
 		if val, ok := kwarg["max_tokens"]; ok {
 			args.MaxTokens = val.(int)
 		}
+		if val, ok := kwarg["temperature"]; ok {
+			if temp, ok := val.(float64); ok {
+				args.Temperature = temp
+			}
+		}
 		if val, ok := kwarg["stream"]; ok {
 			args.Stream = val.(bool)
 		}
@@ -53,7 +58,7 @@ func (args OAIChatArgs) Chat(apiKey string, prompt string, assistant string) (st
 	}
 
 	args.Stream = false
-	response, err := Client(apiKey,args.ChatArgs)
+	response, err := Client(apiKey, args.ChatArgs)
 	if err != nil {
 		return "", err
 	}
@@ -84,7 +89,7 @@ func (params OAIChatArgs) StreamCompleteChat(apiKey string, prompt string, syste
 }
 
 // StreamChat sends a prompt to the stream chat client and returns the response.
-func (params OAIChatArgs) StreamChat(apiKey string, prompt string, system string, ipcChan chan string){
+func (params OAIChatArgs) StreamChat(apiKey string, prompt string, system string, ipcChan chan string) {
 
 	if params.ChatArgs.Messages == nil {
 		params.ChatArgs.Messages = make([]types.Message, 0)

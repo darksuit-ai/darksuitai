@@ -2,8 +2,10 @@ package agent
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 
+	"github.com/darksuit-ai/darksuitai/internal/memory"
 	"github.com/darksuit-ai/darksuitai/internal/memory/mongodb"
 	"github.com/darksuit-ai/darksuitai/internal/prompts"
 	"github.com/darksuit-ai/darksuitai/internal/utilities"
@@ -13,7 +15,7 @@ import (
 
 // PromptAgentInterface defines the interface for preparing the prompt for the LLM.
 type PromptAgentInterface interface {
-	PreparePrompt(SystemPrompt []byte, ChatInstructionPrompt []byte, agentTools []tools.BaseTool, PromptKeys map[string][]byte, mongoCollection *mongo.Collection, sessionId string) ([]byte, []byte, map[string]tools.BaseTool, string, error)
+	PreparePrompt(SystemPrompt []byte, ChatInstructionPrompt []byte, agentTools []tools.BaseTool, PromptKeys map[string][]byte, mongoCollection *mongo.Collection, sessionId string, compactor *memory.Compactor) ([]byte, []byte, map[string]tools.BaseTool, string, error)
 }
 
 // PromptAgent is a struct that implements the PromptAgentInterface.
@@ -28,7 +30,7 @@ func NewPromptAgent() PromptAgentInterface {
 // PreparePrompt is a function that implements the MultiModalAgentInterface.
 // It prepares the prompt for the LLM (Language Learning Model) and returns the LLM and the prepared prompt.
 func (a *PromptAgent) PreparePrompt(SystemPrompt []byte, ChatInstructionPrompt []byte, agentTools []tools.BaseTool,
-	PromptKeys map[string][]byte, mongoCollection *mongo.Collection, sessionId string) ([]byte, []byte, map[string]tools.BaseTool, string, error) {
+	PromptKeys map[string][]byte, mongoCollection *mongo.Collection, sessionId string, compactor *memory.Compactor) ([]byte, []byte, map[string]tools.BaseTool, string, error) {
 
 	var (
 		chatHistory     bytes.Buffer
@@ -63,29 +65,33 @@ func (a *PromptAgent) PreparePrompt(SystemPrompt []byte, ChatInstructionPrompt [
 	// Render the tool names
 	tl, tn := RenderToolNames(agentTools)
 
+	// Merge user-supplied prompt keys with the rendered tool metadata.
+	// (Previously promptMap was reassigned here, silently discarding the
+	// user's PromptKeys; that is now fixed.)
 	promptMap := make(map[string][]byte)
 	for key, value := range PromptKeys {
 		promptMap[key] = value
 	}
+	promptMap["tool_names"] = []byte(tn)
+	promptMap["tools"] = []byte(tl)
 
-	promptMap = map[string][]byte{
-		"tool_names": []byte(tn),
-		"tools":      []byte(tl),
-	}
-
-	if injectedChatHistory, exists := promptMap["chat_history"]; exists {
-		if injectedChatHistory == nil {
-			if (sessionId != "") && (mongoCollection != nil) {
-				var mongoMemory mongodb.ChatMemoryCollectionInterface = mongodb.NewMongoCollection(mongoCollection)
-				// If the session ID is available, retrieve the chat history with a limit of 6 entries
-				chatData, retrieveErr := mongoMemory.RetrieveMemoryWithK(sessionId, 6)
-				if retrieveErr != nil {
-
+	// Inject chat history when a session and memory store are available. With a
+	// compactor configured, use the compacted context (rolling summary + recent
+	// turns); otherwise fall back to the last-K raw transcript.
+	if sessionId != "" && mongoCollection != nil {
+		var mongoMemory mongodb.ChatMemoryCollectionInterface = mongodb.NewMongoCollection(mongoCollection)
+		if compactor != nil {
+			if turns, retrieveErr := mongoMemory.RetrieveTurns(sessionId); retrieveErr == nil {
+				if ctxStr, cErr := compactor.BuildContext(context.Background(), sessionId, turns); cErr == nil {
+					chatHistory.WriteString(ctxStr)
 				}
+			}
+		} else {
+			if chatData, retrieveErr := mongoMemory.RetrieveMemoryWithK(sessionId, 6); retrieveErr == nil {
 				chatHistory.WriteString(chatData)
-				promptMap["chat_history"] = chatHistory.Bytes()
 			}
 		}
+		promptMap["chat_history"] = chatHistory.Bytes()
 	}
 
 	if _, exists := PromptKeys["timeZone"]; exists {

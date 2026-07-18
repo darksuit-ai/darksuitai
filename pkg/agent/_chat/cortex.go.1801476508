@@ -165,7 +165,7 @@ func (prePrompt *AgentPreProgram) Executor(queryPrompt map[string][]byte, sessio
 				mongoMemory.AddConversationToMemory(sessionId, question, finishText)
 
 			}(memoryCollection, questionCopy, finishCopy)
-
+      
 		}
 
 		if toolResponseList != nil {

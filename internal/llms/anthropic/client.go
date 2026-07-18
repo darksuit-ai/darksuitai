@@ -1,345 +1,169 @@
 package anthropic
 
 import (
-	"bufio"
-	"bytes"
-	"encoding/json"
+	"context"
 	"fmt"
-	"io"
-	"log"
-	"math"
-	"math/rand"
-	"net"
-	"net/http"
 	"strings"
-	"sync"
-	"time"
 
 	"github.com/darksuit-ai/darksuitai/internal/llms/anthropic/types"
+
+	"github.com/anthropics/anthropic-sdk-go"
+	"github.com/anthropics/anthropic-sdk-go/option"
 )
 
-// RateLimiter is a simple rate limiter implementation
-type RateLimiter struct {
-	sync.Mutex
-	lastRequest time.Time
-	maxRate     time.Duration
-}
+// This file was migrated (Phase 1) from a hand-rolled net/http client to the
+// official Anthropic Go SDK (github.com/anthropics/anthropic-sdk-go).
+//
+// The SDK provides retries, connection pooling, streaming (SSE) decoding and
+// typed request/response models out of the box, so the previous RateLimiter,
+// custom http.Transport, manual retry/backoff and hand-written SSE scanner have
+// all been removed. The public surface of this package (Client,
+// StreamCompleteClient, StreamClient and the AnthChatArgs methods in api.go) is
+// unchanged, so callers in pkg/agent, pkg/chat and pkg/convchat need no edits.
 
-// Wait blocks until it's time to allow the next request
-func (r *RateLimiter) Wait() {
-	r.Lock()
-	defer r.Unlock()
-	now := time.Now()
-	if elapsed := now.Sub(r.lastRequest); elapsed < r.maxRate {
-		time.Sleep(r.maxRate - elapsed)
+// newSDKClient builds an Anthropic SDK client from an explicit API key.
+// The key is passed through the existing framework configuration rather than
+// relying solely on the ANTHROPIC_API_KEY environment variable.
+func newSDKClient(apiKey string) (anthropic.Client, error) {
+	if apiKey == "" {
+		return anthropic.Client{}, fmt.Errorf("anthropic: API key is not set; pass it via AddAPIKey or the ANTHROPIC_API_KEY environment variable")
 	}
-	r.lastRequest = now
+	return anthropic.NewClient(option.WithAPIKey(apiKey)), nil
 }
 
-// rateLimiter is a global rate limiter instance
-var rateLimiter = RateLimiter{
-	maxRate: 1 * time.Second, // Adjust the rate limit as needed
+// buildParams converts the framework's provider-agnostic ChatArgs into the
+// SDK's MessageNewParams.
+func buildParams(req types.ChatArgs) anthropic.MessageNewParams {
+	params := anthropic.MessageNewParams{
+		Model:     anthropic.Model(req.Model),
+		MaxTokens: int64(req.MaxTokens),
+		Messages:  toSDKMessages(req.Messages),
+	}
+
+	if req.System != "" {
+		params.System = []anthropic.TextBlockParam{{Text: req.System}}
+	}
+	// Only set temperature when the caller provided one; otherwise let the API
+	// apply its own default (1.0) instead of forcing 0.0.
+	if req.Temperature > 0 {
+		params.Temperature = anthropic.Float(req.Temperature)
+	}
+	if stops := toStringSlice(req.StopSequences); len(stops) > 0 {
+		params.StopSequences = stops
+	}
+	return params
 }
 
-// Configure the HTTP transport for connection reuse
-var transport = &http.Transport{
-	MaxIdleConns:        100,
-	MaxIdleConnsPerHost: 100,
-	IdleConnTimeout:     90 * time.Second,
-	DialContext: (&net.Dialer{
-		Timeout:   30 * time.Second,
-		KeepAlive: 30 * time.Second,
-	}).DialContext,
-	TLSHandshakeTimeout: 10 * time.Second,
-}
-
-// Global HTTP client to reuse across requests
-var httpClient = &http.Client{
-	Transport: transport,
-	Timeout:   0, // No timeout for streaming; use context for control
-}
-
-
-
-func retryRequest(client *http.Client, req *http.Request) (*http.Response, error) {
-	var resp *http.Response
-	var err error
-	for i := 0; i < 5; i++ { // Retry up to 5 times
-		resp, err = client.Do(req)
-		if err == nil && resp.StatusCode != http.StatusTooManyRequests {
-			return resp, nil
+// toSDKMessages maps the framework's simple role/content messages onto the
+// SDK's MessageParam blocks. Anthropic only supports user/assistant turns, so
+// any other role is treated as a user turn.
+func toSDKMessages(messages []types.Message) []anthropic.MessageParam {
+	out := make([]anthropic.MessageParam, 0, len(messages))
+	for _, m := range messages {
+		block := anthropic.NewTextBlock(m.Content)
+		switch m.Role {
+		case "assistant":
+			out = append(out, anthropic.NewAssistantMessage(block))
+		default:
+			out = append(out, anthropic.NewUserMessage(block))
 		}
-		if resp != nil {
-			resp.Body.Close()
+	}
+	return out
+}
+
+// toStringSlice normalizes the loosely-typed StopSequences field (kept as
+// interface{} for backwards compatibility) into a concrete []string.
+func toStringSlice(v interface{}) []string {
+	switch s := v.(type) {
+	case []string:
+		return s
+	case []interface{}:
+		out := make([]string, 0, len(s))
+		for _, item := range s {
+			if str, ok := item.(string); ok {
+				out = append(out, str)
+			}
 		}
-		timeout := calculateRetryTimeout(i)
-		time.Sleep(timeout)
-	}
-	return resp, err
-}
-
-func calculateRetryTimeout(retryCount int) time.Duration {
-	// Exponential backoff with jitter
-	sleepSeconds := math.Min(float64(int(1<<retryCount)), 60) // Cap at 60 seconds
-	jitter := sleepSeconds * (1 + 0.25*(rand.Float64()-0.5))
-	return time.Duration(jitter) * time.Second
-}
-
-func checkEnvVar(anthropicAPIKey string) {
-	// Check for the required environment variable
-	if anthropicAPIKey == "" {
-		log.Fatal(`
-ANTHROPIC_API_KEY is not set or is empty. 
-Please set it in the .env file as follows:
-
-    ANTHROPIC_API_KEY="your_anthropic_api_key_here"
-
-Make sure to replace "your_anthropic_api_key_here" with your actual Anthropic API key.
-If you don't have a .env file, create one in the root directory of your project.
-`)
+		return out
+	default:
+		return nil
 	}
 }
 
+// Client performs a non-streaming message request and returns the concatenated
+// text content of the response.
 func Client(apiKey string, req types.ChatArgs) (string, error) {
-	checkEnvVar(apiKey)
-	// Wait for rate limiter
-	//rateLimiter.Wait()
-	// Marshal the payload to JSON
-	reqJsonPayload, err := json.Marshal(req)
-
+	client, err := newSDKClient(apiKey)
 	if err != nil {
-		return "", fmt.Errorf("error marshaling JSON: %w", err)
+		return "", err
 	}
 
-	// Create a new HTTP request
-	request, err := http.NewRequest("POST", "https://api.anthropic.com/v1/messages", bytes.NewBuffer([]byte(reqJsonPayload)))
+	msg, err := client.Messages.New(context.Background(), buildParams(req))
 	if err != nil {
-		return "", fmt.Errorf("error creating HTTP request: %w", err)
+		return "", fmt.Errorf("anthropic: message request failed: %w", err)
 	}
 
-	// Set request headers
-	request.Header.Set("x-api-key", apiKey)
-	request.Header.Set("Content-Type", "application/json")
-	request.Header.Set("anthropic-version", "2023-06-01")
-	request.Header.Set("anthropic-beta", "messages-2023-12-15")
-
-	// Make the request with retry logic
-	resp, err := retryRequest(httpClient, request)
-	if err != nil {
-		return "", fmt.Errorf("error making HTTP request: %w", err)
-	}
-	// print(resp.StatusCode)
-	defer resp.Body.Close()
-	if resp.StatusCode == 400 {
-		// Read the response body
-		bodyBytes, err := io.ReadAll(resp.Body)
-		if err != nil {
-			return "", fmt.Errorf("error reading response body: %w", err)
+	var sb strings.Builder
+	for _, block := range msg.Content {
+		if block.Type == "text" {
+			sb.WriteString(block.Text)
 		}
-
-		// Convert the response body to a string
-		bodyString := string(bodyBytes)
-
-		// Print the response body, neccessary for immediate error
-		fmt.Println(bodyString)
-		// Print the response body
-		return bodyString, nil
 	}
-	// Check if the response status indicates an error
-	if resp.StatusCode >= 400 {
-		var clientErr types.ChatError
-		if err := json.NewDecoder(resp.Body).Decode(&clientErr); err != nil {
-			return "", fmt.Errorf("error unmarshaling error response: %w", err)
-		}
-		return "", fmt.Errorf("API error: %v", clientErr)
-	}
-
-	// Unmarshal the successful response
-	var response types.ChatCompletionResponse
-	if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
-		return "", fmt.Errorf("error unmarshaling chat completion response: %w", err)
-	}
-	// Extract the content from the response
-	content := response.Content[0]["text"]
-
-	return content, nil
+	return sb.String(), nil
 }
 
+// StreamCompleteClient streams a message request but accumulates the full text
+// before returning it (the caller wants a single string, not incremental chunks).
 func StreamCompleteClient(apiKey string, req types.ChatArgs) (string, error) {
-	checkEnvVar(apiKey)
-	// Marshal the payload to JSON
-	reqJsonPayload, err := json.Marshal(req)
+	client, err := newSDKClient(apiKey)
 	if err != nil {
-		return "", fmt.Errorf("error marshaling JSON: %w", err)
+		return "", err
 	}
 
-	// Create a new HTTP request
-	request, err := http.NewRequest("POST", "https://api.anthropic.com/v1/messages", bytes.NewBuffer([]byte(reqJsonPayload)))
-	if err != nil {
-		return "", fmt.Errorf("error creating HTTP request: %w", err)
-	}
-
-	// Set request headers
-	request.Header.Set("Content-Type", "application/json")
-	request.Header.Set("Accept", "text/event-stream")
-	request.Header.Set("Cache-Control", "no-cache")
-	request.Header.Set("Connection", "keep-alive")
-	request.Header.Set("x-api-key", apiKey)
-	request.Header.Set("anthropic-version", "2023-06-01")
-	request.Header.Set("anthropic-beta", "messages-2023-12-15")
-
-	// Make the request
-	resp, err := retryRequest(httpClient, request)
-	if err != nil {
-		return "", fmt.Errorf("error making HTTP request: %w", err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode == 400 {
-		// Read the response body
-		bodyBytes, err := io.ReadAll(resp.Body)
-		if err != nil {
-			return "", fmt.Errorf("error reading response body: %w", err)
-		}
-
-		// Convert the response body to a string
-		bodyString := string(bodyBytes)
-
-		// Print the response body
-		fmt.Println(bodyString)
-	}
-	// Check if the response status indicates an error
-	if resp.StatusCode >= 400 {
-		var clientErr types.ErrorResponse
-		if err := json.NewDecoder(resp.Body).Decode(&clientErr); err != nil {
-			return "", fmt.Errorf("error unmarshaling error response: %w", err)
-		}
-		return "", fmt.Errorf("API error: %v", clientErr)
-	}
-	// Use a scanner to read the streaming response
-	scanner := bufio.NewScanner(resp.Body)
-	result := []string{}
-
-	for scanner.Scan() {
-		line := scanner.Bytes()
-		if bytes.HasPrefix(line, []byte(`event: message_stop)`)) {
-			break
-		}
-		if bytes.HasPrefix(line, []byte(`data: `)) {
-			data := bytes.TrimPrefix(line, []byte(`data: `))
-			var chunk types.ContentBlockDelta
-			if err := json.Unmarshal(data, &chunk); err != nil {
-				result = append(result, err.Error())
-			}
-			if chunk.Type == "ping" {
-				continue
-			}
-			if chunk.Type == "content_block_start" {
-				continue
-			}
-			if chunk.Type == "content_block_delta" {
-				result = append(result, chunk.Delta["text"])
-			}
-		} else if bytes.HasPrefix(line, []byte(`event: error)`)) {
-			data := bytes.TrimPrefix(line, []byte(`data: `))
-			var chunk types.ChatOverloadError
-			if err := json.Unmarshal(data, &chunk); err != nil {
-				result = append(result, err.Error())
+	stream := client.Messages.NewStreaming(context.Background(), buildParams(req))
+	var sb strings.Builder
+	for stream.Next() {
+		event := stream.Current()
+		switch eventVariant := event.AsAny().(type) {
+		case anthropic.ContentBlockDeltaEvent:
+			switch delta := eventVariant.Delta.AsAny().(type) {
+			case anthropic.TextDelta:
+				sb.WriteString(delta.Text)
 			}
 		}
 	}
-	finalResult := strings.Join(result, "")
-	return finalResult, nil
+	if err := stream.Err(); err != nil {
+		return sb.String(), fmt.Errorf("anthropic: stream failed: %w", err)
+	}
+	return sb.String(), nil
 }
 
+// StreamClient streams a message request and forwards each text delta to
+// chunkChan. The channel is always closed when the function returns.
 func StreamClient(apiKey string, req types.ChatArgs, chunkChan chan string) error {
-	// Ensure we close the channel when we're done
 	defer close(chunkChan)
-	
-	checkEnvVar(apiKey)
-	// Marshal the payload to JSON
-	reqJsonPayload, err := json.Marshal(req)
+
+	client, err := newSDKClient(apiKey)
 	if err != nil {
+		chunkChan <- err.Error()
 		return err
 	}
 
-	// Create a new HTTP request
-	request, err := http.NewRequest("POST", "https://api.anthropic.com/v1/messages", bytes.NewBuffer([]byte(reqJsonPayload)))
-	if err != nil {
-		return err
-	}
-
-	// Set request headers
-	request.Header.Set("Content-Type", "application/json")
-	request.Header.Set("Accept", "text/event-stream")
-	request.Header.Set("Cache-Control", "no-cache")
-	request.Header.Set("Connection", "keep-alive")
-	request.Header.Set("x-api-key", apiKey)
-	request.Header.Set("anthropic-version", "2023-06-01")
-	request.Header.Set("anthropic-beta", "messages-2023-12-15")
-
-	// Make the request
-	resp, err := retryRequest(httpClient, request)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode == 400 {
-		// Read the response body
-		bodyBytes, err := io.ReadAll(resp.Body)
-		if err != nil {
-			return err
-		}
-
-		// Convert the response body to a string
-		bodyString := string(bodyBytes)
-
-		// Print the response body
-		fmt.Println(bodyString)
-	}
-	// Check if the response status indicates an error
-	if resp.StatusCode >= 400 {
-		var clientErr types.ErrorResponse
-		if err := json.NewDecoder(resp.Body).Decode(&clientErr); err != nil {
-			return err
-		}
-
-		errorMessage := clientErr.Error.Message
-		fmt.Println(errorMessage)
-
-		chunkChan <- errorMessage
-
-	}
-	// Use a scanner to read the streaming response
-	scanner := bufio.NewScanner(resp.Body)
-
-	for scanner.Scan() {
-		line := scanner.Bytes()
-		if bytes.HasPrefix(line, []byte(`event: message_stop)`)) {
-			break
-		}
-		if bytes.HasPrefix(line, []byte(`data: `)) {
-			data := bytes.TrimPrefix(line, []byte(`data: `))
-			var chunk types.ContentBlockDelta
-			if err := json.Unmarshal(data, &chunk); err != nil {
-				chunkChan <- err.Error()
-			}
-			if chunk.Type == "ping" {
-				continue
-			}
-			if chunk.Type == "content_block_start" {
-				continue
-			}
-			if chunk.Type == "content_block_delta" {
-				chunkChan <- chunk.Delta["text"]
-
-			}
-		} else if bytes.HasPrefix(line, []byte(`event: error)`)) {
-			data := bytes.TrimPrefix(line, []byte(`data: `))
-			var chunk types.ChatOverloadError
-			if err := json.Unmarshal(data, &chunk); err != nil {
-				chunkChan <- err.Error()
+	stream := client.Messages.NewStreaming(context.Background(), buildParams(req))
+	for stream.Next() {
+		event := stream.Current()
+		switch eventVariant := event.AsAny().(type) {
+		case anthropic.ContentBlockDeltaEvent:
+			switch delta := eventVariant.Delta.AsAny().(type) {
+			case anthropic.TextDelta:
+				chunkChan <- delta.Text
 			}
 		}
+	}
+	if err := stream.Err(); err != nil {
+		wrapped := fmt.Errorf("anthropic: stream failed: %w", err)
+		chunkChan <- wrapped.Error()
+		return wrapped
 	}
 	return nil
 }

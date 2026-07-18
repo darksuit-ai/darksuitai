@@ -2,10 +2,10 @@ package mongodb
 
 import (
 	"context"
-	"sort"
 	"strings"
 	"time"
 
+	"github.com/darksuit-ai/darksuitai/internal/memory"
 	utl "github.com/darksuit-ai/darksuitai/internal/utilities"
 
 	"go.mongodb.org/mongo-driver/bson"
@@ -18,6 +18,9 @@ import (
 type ChatMemoryCollectionInterface interface {
 	AddConversationToMemory(sessionId, prompt, aiMessage string) error
 	RetrieveMemoryWithK(sessionId string, k int64) (string, error)
+	// RetrieveTurns returns the full, chronological (oldest-first) turn history
+	// for a session; used by the Phase 4 compactor.
+	RetrieveTurns(sessionId string) ([]memory.Turn, error)
 }
 
 type dataObject struct {
@@ -114,28 +117,37 @@ func (mc *MongoCollection) RetrieveMemoryWithK(sessionId string, k int64) (strin
 	// Close the MongoDB cursor after iterating over the results
 	defer cur.Close(context.Background())
 
-	// Initialize a slice to store the chat history
-	var chatHistory []string
-
-	// Iterate over the cursor and append the user prompt and AI response to the chat_history slice
+	// The cursor returns documents newest-first (timestamp descending).
+	// Collect them, then emit oldest-first so the rendered history reads
+	// chronologically, with each turn ordered Human -> AI.
+	//
+	// NOTE: the previous implementation called sort.Slice with
+	// `func(i, j int) bool { return i > j }`, which sorts by slice *index*
+	// rather than by timestamp. That only reversed the slice and scrambled
+	// the Human/AI pairing; it did not order the history by time.
+	var docs []convHistory
 	for cur.Next(context.Background()) {
 		var doc convHistory
-		err := cur.Decode(&doc)
-		if err != nil {
-			return "", dbErr
+		if decErr := cur.Decode(&doc); decErr != nil {
+			return "", decErr
 		}
-
-		chatHistory = append(chatHistory, utl.ConcatWords([]byte(``), []byte(`AI: `), []byte(doc.History.Data.DarksuitResponse)))
-		chatHistory = append(chatHistory, utl.ConcatWords([]byte(``), []byte(`Human: `), []byte(doc.History.Data.UserPrompt)))
+		docs = append(docs, doc)
 	}
-	// reverse the array
-	sort.Slice(chatHistory, func(i, j int) bool {
-		return i > j
-	})
+	if curErr := cur.Err(); curErr != nil {
+		return "", curErr
+	}
 
-	// If the chat_history slice is empty, return an empty string
-	if len(chatHistory) == 0 {
+	// If no history was found, return an empty string
+	if len(docs) == 0 {
 		return "[]", nil
+	}
+
+	// Walk newest-first docs in reverse to build an oldest-first transcript.
+	var chatHistory []string
+	for i := len(docs) - 1; i >= 0; i-- {
+		doc := docs[i]
+		chatHistory = append(chatHistory, utl.ConcatWords([]byte(``), []byte(`Human: `), []byte(doc.History.Data.UserPrompt)))
+		chatHistory = append(chatHistory, utl.ConcatWords([]byte(``), []byte(`AI: `), []byte(doc.History.Data.DarksuitResponse)))
 	}
 
 	// Join the chat_history slice elements into a single string separated by ", "
@@ -144,4 +156,32 @@ func (mc *MongoCollection) RetrieveMemoryWithK(sessionId string, k int64) (strin
 	// Return the chat_history_string
 	return chatHistoryString, nil
 
+}
+
+// RetrieveTurns returns the full conversation for a session in chronological
+// (oldest-first) order, for use by the Phase 4 compactor.
+func (mc *MongoCollection) RetrieveTurns(sessionId string) ([]memory.Turn, error) {
+	// Ascending timestamp => oldest first.
+	opts := options.Find().SetSort(bson.D{primitive.E{Key: "timestamp", Value: 1}})
+	cur, dbErr := mc.collection.Find(context.Background(), bson.M{"sessionId": sessionId}, opts)
+	if dbErr != nil {
+		return nil, dbErr
+	}
+	defer cur.Close(context.Background())
+
+	var turns []memory.Turn
+	for cur.Next(context.Background()) {
+		var doc convHistory
+		if decErr := cur.Decode(&doc); decErr != nil {
+			return nil, decErr
+		}
+		turns = append(turns, memory.Turn{
+			Human: doc.History.Data.UserPrompt,
+			AI:    doc.History.Data.DarksuitResponse,
+		})
+	}
+	if curErr := cur.Err(); curErr != nil {
+		return nil, curErr
+	}
+	return turns, nil
 }

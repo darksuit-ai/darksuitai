@@ -24,6 +24,11 @@ func ChatGEM(kwargs ...map[string]interface{}) GEMChatArgs {
 		if val, ok := kwarg["max_tokens"]; ok {
 			args.MaxTokens = val.(int)
 		}
+		if val, ok := kwarg["temperature"]; ok {
+			if temp, ok := val.(float64); ok {
+				args.Temperature = temp
+			}
+		}
 		if val, ok := kwarg["stream"]; ok {
 			args.Stream = val.(bool)
 		}
@@ -53,7 +58,7 @@ func (args GEMChatArgs) Chat(apiKey string, prompt string, assistant string) (st
 	}
 
 	args.Stream = false
-	response, err := Client(apiKey,args.ChatArgs)
+	response, err := Client(apiKey, args.ChatArgs)
 	if err != nil {
 		return "", err
 	}

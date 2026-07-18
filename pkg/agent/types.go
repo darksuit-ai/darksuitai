@@ -1,6 +1,8 @@
 package agent
 
 import (
+	"github.com/darksuit-ai/darksuitai/internal/memory"
+	"github.com/darksuit-ai/darksuitai/internal/observability"
 	"github.com/darksuit-ai/darksuitai/pkg/tools"
 	"go.mongodb.org/mongo-driver/mongo"
 )
@@ -20,6 +22,14 @@ type Synapse struct {
 		StopSequences []string `json:"stop_sequences"`
 	}
 	APIKey []byte
+	// ToolProtocol selects the tool-calling protocol: "xml" (default) or
+	// "native" (Anthropic structured tool calling).
+	ToolProtocol string
+	// Observer receives run/LLM/tool telemetry. When nil, telemetry is disabled.
+	Observer observability.Observer
+	// Compactor, when set, replaces raw last-K memory retrieval with compacted
+	// context (rolling summary + recent turns) during prompt preparation.
+	Compactor *memory.Compactor
 }
 
 // AIResponse represents the structured response of an AI assistant

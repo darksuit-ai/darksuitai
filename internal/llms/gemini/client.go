@@ -1,313 +1,166 @@
 package gemini
 
 import (
-	"bufio"
-	"bytes"
-	"encoding/json"
+	"context"
 	"fmt"
-	"io"
-	"log"
-	"math"
-	"math/rand"
-	"net"
-	"net/http"
 	"strings"
-	"sync"
-	"time"
+
 	"github.com/darksuit-ai/darksuitai/internal/llms/gemini/types"
+
+	"google.golang.org/genai"
 )
 
-// RateLimiter is a simple rate limiter implementation
-type RateLimiter struct {
-	sync.Mutex
-	lastRequest time.Time
-	maxRate     time.Duration
-}
+// This file was migrated from a hand-rolled net/http client (against Gemini's
+// OpenAI-compatible endpoint) to the official Google Gen AI SDK
+// (google.golang.org/genai). The SDK handles auth, retries, streaming and typed
+// models, so the previous RateLimiter, custom transport, manual retry loop and
+// SSE scanner have been removed. The package's public surface (Client,
+// StreamCompleteClient, StreamClient and the GEMChatArgs methods in api.go) is
+// unchanged, so callers need no edits.
 
-// Wait blocks until it's time to allow the next request
-func (r *RateLimiter) Wait() {
-	r.Lock()
-	defer r.Unlock()
-	now := time.Now()
-	if elapsed := now.Sub(r.lastRequest); elapsed < r.maxRate {
-		time.Sleep(r.maxRate - elapsed)
+const defaultGeminiModel = "gemini-2.5-flash"
+
+// newGenaiClient builds a Gemini SDK client from an explicit API key.
+func newGenaiClient(ctx context.Context, apiKey string) (*genai.Client, error) {
+	if apiKey == "" {
+		return nil, fmt.Errorf("gemini: API key is not set; pass it via AddAPIKey or the GEMINI_API_KEY environment variable")
 	}
-	r.lastRequest = now
+	return genai.NewClient(ctx, &genai.ClientConfig{
+		APIKey:  apiKey,
+		Backend: genai.BackendGeminiAPI,
+	})
 }
 
-// rateLimiter is a global rate limiter instance
-var rateLimiter = RateLimiter{
-	maxRate: 1 * time.Second, // Adjust the rate limit as needed
-}
-
-// Configure the HTTP transport for connection reuse
-var transport = &http.Transport{
-	MaxIdleConns:        100,
-	MaxIdleConnsPerHost: 100,
-	IdleConnTimeout:     90 * time.Second,
-	DialContext: (&net.Dialer{
-		Timeout:   30 * time.Second,
-		KeepAlive: 30 * time.Second,
-	}).DialContext,
-	TLSHandshakeTimeout: 10 * time.Second,
-}
-
-// Global HTTP client to reuse across requests
-var httpClient = &http.Client{
-	Transport: transport,
-	Timeout:   0, // No timeout for streaming; use context for control
-}
-
-func retryRequest(client *http.Client, req *http.Request) (*http.Response, error) {
-	var resp *http.Response
-	var err error
-	for i := 0; i < 5; i++ { // Retry up to 5 times
-		resp, err = client.Do(req)
-		if err == nil && resp.StatusCode != http.StatusTooManyRequests {
-			return resp, nil
+// splitPromptAndSystem derives the user prompt and system instruction from the
+// framework's provider-agnostic message list. Gemini takes the system prompt
+// out-of-band (SystemInstruction), so system-role messages are separated out.
+func splitPromptAndSystem(messages []types.Message) (prompt, system string) {
+	var b strings.Builder
+	for _, m := range messages {
+		if m.Role == "system" {
+			system = m.Content
+			continue
 		}
-		if resp != nil {
-			resp.Body.Close()
+		b.WriteString(m.Content)
+	}
+	return b.String(), system
+}
+
+// buildConfig maps ChatArgs onto the SDK's generation config.
+func buildConfig(req types.ChatArgs, system string) *genai.GenerateContentConfig {
+	cfg := &genai.GenerateContentConfig{}
+	if req.Temperature > 0 {
+		t := float32(req.Temperature)
+		cfg.Temperature = &t
+	}
+	if req.MaxTokens > 0 {
+		cfg.MaxOutputTokens = int32(req.MaxTokens)
+	}
+	if stops := toStringSlice(req.Stop); len(stops) > 0 {
+		cfg.StopSequences = stops
+	}
+	if system != "" {
+		cfg.SystemInstruction = &genai.Content{Parts: []*genai.Part{{Text: system}}}
+	}
+	return cfg
+}
+
+// toStringSlice normalizes the loosely-typed Stop field into a concrete []string.
+func toStringSlice(v interface{}) []string {
+	switch s := v.(type) {
+	case []string:
+		return s
+	case []interface{}:
+		out := make([]string, 0, len(s))
+		for _, item := range s {
+			if str, ok := item.(string); ok {
+				out = append(out, str)
+			}
 		}
-		timeout := calculateRetryTimeout(i)
-		time.Sleep(timeout)
-	}
-	return resp, err
-}
-
-func calculateRetryTimeout(retryCount int) time.Duration {
-	// Exponential backoff with jitter
-	sleepSeconds := math.Min(float64(int(1<<retryCount)), 60) // Cap at 60 seconds
-	jitter := sleepSeconds * (1 + 0.25*(rand.Float64()-0.5))
-	return time.Duration(jitter) * time.Second
-}
-
-func checkEnvVar(geminiAPIKey string) {
-	// Check for the required environment variable
-	if geminiAPIKey == "" {
-		log.Fatal(`
-GEMINI_API_KEY is not set or is empty. 
-Please set it in the .env file as follows:
-
-    GEMINI_API_KEY="your_gemini_api_key_here"
-
-Make sure to replace "your_gemini_api_key_here" with your actual gemini API key.
-If you don't have a .env file, create one in the root directory of your project.
-`)
+		return out
+	default:
+		return nil
 	}
 }
 
+func modelOrDefault(model string) string {
+	if model == "" {
+		return defaultGeminiModel
+	}
+	return model
+}
+
+// Client performs a non-streaming generate request and returns the text.
 func Client(apiKey string, req types.ChatArgs) (string, error) {
-	checkEnvVar(apiKey)
-	// Wait for rate limiter
-	//rateLimiter.Wait()
-	// Marshal the payload to JSON
-	reqJsonPayload, err := json.Marshal(req)
-
+	ctx := context.Background()
+	client, err := newGenaiClient(ctx, apiKey)
 	if err != nil {
-		return "", fmt.Errorf("error marshaling JSON: %w", err)
+		return "", err
 	}
 
-	// Create a new HTTP request
-	request, err := http.NewRequest("POST", "https://generativelanguage.googleapis.com/v1beta/chat/completions", bytes.NewBuffer([]byte(reqJsonPayload)))
+	prompt, system := splitPromptAndSystem(req.Messages)
+	resp, err := client.Models.GenerateContent(ctx, modelOrDefault(req.Model), genai.Text(prompt), buildConfig(req, system))
 	if err != nil {
-		return "", fmt.Errorf("error creating HTTP request: %w", err)
+		return "", fmt.Errorf("gemini: generate failed: %w", err)
 	}
-
-	// Set request headers
-	request.Header.Set("Authorization", fmt.Sprintf("Bearer %s", apiKey))
-	request.Header.Set("Content-Type", "application/json")
-
-	// Make the request with retry logic
-	resp, err := retryRequest(httpClient, request)
-	if err != nil {
-		return "", fmt.Errorf("error making HTTP request: %w", err)
-	}
-	// print(resp.StatusCode)
-	defer resp.Body.Close()
-	if resp.StatusCode == 400 {
-		// Read the response body
-		bodyBytes, err := io.ReadAll(resp.Body)
-		if err != nil {
-			return "", fmt.Errorf("error reading response body: %w", err)
-		}
-
-		// Convert the response body to a string
-		bodyString := string(bodyBytes)
-
-		// Print the response body
-		return bodyString, nil
-	}
-	// Check if the response status indicates an error
-	if resp.StatusCode >= 400 {
-		var clientErr types.ChatError
-		if err := json.NewDecoder(resp.Body).Decode(&clientErr); err != nil {
-			return err.Error(), fmt.Errorf("error unmarshaling error response: %w", err)
-		}
-		return clientErr.Error.Message, fmt.Errorf("API error: %v", clientErr)
-	}
-
-	// Unmarshal the successful response
-	var response types.ChatCompletionResponse
-	if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
-		return err.Error(), fmt.Errorf("error unmarshaling chat completion response: %w", err)
-	}
-	// Extract the content from the response
-	content := response.Content[0]["text"]
-
-	return content, nil
+	return resp.Text(), nil
 }
 
+// StreamCompleteClient streams a generate request and accumulates the full text.
 func StreamCompleteClient(apiKey string, req types.ChatArgs) (string, error) {
-	checkEnvVar(apiKey)
-	// Marshal the payload to JSON
-	reqJsonPayload, err := json.Marshal(req)
+	ctx := context.Background()
+	client, err := newGenaiClient(ctx, apiKey)
 	if err != nil {
-		return "", fmt.Errorf("error marshaling JSON: %w", err)
+		return "", err
 	}
 
-	// Create a new HTTP request
-	request, err := http.NewRequest("POST", "https://generativelanguage.googleapis.com/v1beta/chat/completions", bytes.NewBuffer([]byte(reqJsonPayload)))
-	if err != nil {
-		return "", fmt.Errorf("error creating HTTP request: %w", err)
-	}
-
-	// Set request headers
-	request.Header.Set("Accept", "text/event-stream")
-	request.Header.Set("Content-Type", "application/json")
-	request.Header.Set("Cache-Control", "no-cache")
-	request.Header.Set("Connection", "keep-alive")
-	request.Header.Set("Authorization", fmt.Sprintf("Bearer %s", apiKey))
-
-	// Make the request
-	resp, err := retryRequest(httpClient, request)
-	if err != nil {
-		return "", fmt.Errorf("error making HTTP request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode == 400 {
-		// Read the response body
-		bodyBytes, err := io.ReadAll(resp.Body)
+	prompt, system := splitPromptAndSystem(req.Messages)
+	var sb strings.Builder
+	var streamErr error
+	// GenerateContentStream returns an iter.Seq2 (a func); call it directly with
+	// a yield callback so this compiles across Go toolchains.
+	stream := client.Models.GenerateContentStream(ctx, modelOrDefault(req.Model), genai.Text(prompt), buildConfig(req, system))
+	stream(func(result *genai.GenerateContentResponse, err error) bool {
 		if err != nil {
-			return "", fmt.Errorf("error reading response body: %w", err)
+			streamErr = err
+			return false
 		}
-		return string(bodyBytes), nil
+		sb.WriteString(result.Text())
+		return true
+	})
+	if streamErr != nil {
+		return sb.String(), fmt.Errorf("gemini: stream failed: %w", streamErr)
 	}
-	// Check if the response status indicates an error
-	if resp.StatusCode >= 400 {
-		var clientErr types.ErrorResponse
-		if err := json.NewDecoder(resp.Body).Decode(&clientErr); err != nil {
-			return "", fmt.Errorf("error unmarshaling error response: %w", err)
-		}
-		return "", fmt.Errorf("API error: %v", clientErr)
-	}
-	// Use a scanner to read the streaming response
-	scanner := bufio.NewScanner(resp.Body)
-	result := []string{}
-
-	for scanner.Scan() {
-
-		line := scanner.Bytes()
-
-		if bytes.HasPrefix(line, []byte(`event: message_stop)`)) {
-			break
-		}
-
-		if bytes.HasPrefix(line, []byte(`data: `)) {
-
-			data := bytes.TrimPrefix(line, []byte(`data: `))
-
-			if bytes.Contains(data, []byte(`[DONE]`)) {
-				break
-			}
-			var chunk types.ChatCompletionChunk
-			if err := json.Unmarshal(data, &chunk); err != nil {
-				return "", err
-			}
-
-			result = append(result, chunk.Choices[0].Delta.Content)
-		}
-
-	}
-	finalResult := strings.Join(result, "")
-
-	return finalResult, nil
+	return sb.String(), nil
 }
 
+// StreamClient streams a generate request, forwarding each text chunk to
+// chunkChan. The channel is always closed when the function returns.
 func StreamClient(apiKey string, req types.ChatArgs, chunkChan chan string) error {
-	// Ensure we close the channel when we're done
 	defer close(chunkChan)
-	checkEnvVar(apiKey)
-	// Marshal the payload to JSON
-	reqJsonPayload, err := json.Marshal(req)
+
+	ctx := context.Background()
+	client, err := newGenaiClient(ctx, apiKey)
 	if err != nil {
+		chunkChan <- err.Error()
 		return err
 	}
 
-	// Create a new HTTP request
-	request, err := http.NewRequest("POST", "https://generativelanguage.googleapis.com/v1beta/chat/completions", bytes.NewBuffer([]byte(reqJsonPayload)))
-	if err != nil {
-		return err
-	}
-
-	// Set request headers
-	request.Header.Set("Accept", "text/event-stream")
-	request.Header.Set("Content-Type", "application/json")
-	request.Header.Set("Cache-Control", "no-cache")
-	request.Header.Set("Connection", "keep-alive")
-	request.Header.Set("Authorization", fmt.Sprintf("Bearer %s", apiKey))
-
-	// Make the request
-	resp, err := retryRequest(httpClient, request)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode == 400 {
-		// Read the response body
-		bodyBytes, err := io.ReadAll(resp.Body)
+	prompt, system := splitPromptAndSystem(req.Messages)
+	var streamErr error
+	stream := client.Models.GenerateContentStream(ctx, modelOrDefault(req.Model), genai.Text(prompt), buildConfig(req, system))
+	stream(func(result *genai.GenerateContentResponse, err error) bool {
 		if err != nil {
-			return err
+			streamErr = err
+			return false
 		}
-
-		chunkChan <- string(bodyBytes)
-	}
-	// Check if the response status indicates an error
-	if resp.StatusCode >= 400 {
-		var clientErr types.ErrorResponse
-		if err := json.NewDecoder(resp.Body).Decode(&clientErr); err != nil {
-			return err
-		}
-		return fmt.Errorf(clientErr.Error.Message)
-	}
-	// Use a scanner to read the streaming response
-	scanner := bufio.NewScanner(resp.Body)
-
-	for scanner.Scan() {
-
-		line := scanner.Bytes()
-
-		if bytes.HasPrefix(line, []byte(`event: message_stop)`)) {
-			break
-		}
-
-		if bytes.HasPrefix(line, []byte(`data: `)) {
-
-			data := bytes.TrimPrefix(line, []byte(`data: `))
-
-			if bytes.Contains(data, []byte(`[DONE]`)) {
-				break
-			}
-			var chunk types.ChatCompletionChunk
-			if err := json.Unmarshal(data, &chunk); err != nil {
-				return err
-			}
-			chunkChan <- chunk.Choices[0].Delta.Content
-
-		}
-
+		chunkChan <- result.Text()
+		return true
+	})
+	if streamErr != nil {
+		wrapped := fmt.Errorf("gemini: stream failed: %w", streamErr)
+		chunkChan <- wrapped.Error()
+		return wrapped
 	}
 	return nil
 }

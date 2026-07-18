@@ -1,10 +1,13 @@
 module github.com/darksuit-ai/darksuitai
 
-go 1.20
+go 1.24
 retract v0.0.1
 require (
+	github.com/anthropics/anthropic-sdk-go v1.58.0
 	github.com/joho/godotenv v1.5.1
+	github.com/openai/openai-go/v3 v3.43.0
 	go.mongodb.org/mongo-driver v1.15.1
+	google.golang.org/genai v1.64.0
 	gopkg.in/yaml.v2 v2.4.0
 )
 

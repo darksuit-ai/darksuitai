@@ -3,7 +3,11 @@ package darksuitai
 import (
 	"fmt"
 	"github.com/darksuit-ai/darksuitai/internal"
+	anthropicllm "github.com/darksuit-ai/darksuitai/internal/llms/anthropic"
+	"github.com/darksuit-ai/darksuitai/internal/memory"
+	"github.com/darksuit-ai/darksuitai/internal/memory/embed"
 	"github.com/darksuit-ai/darksuitai/internal/memory/mongodb"
+	"github.com/darksuit-ai/darksuitai/internal/observability"
 	"github.com/darksuit-ai/darksuitai/pkg/agent"
 	"github.com/darksuit-ai/darksuitai/pkg/agent/_chat"
 	"github.com/darksuit-ai/darksuitai/pkg/agent/_stream"
@@ -15,6 +19,83 @@ import (
 	"strings"
 	"sync"
 )
+
+// Observability re-exports (Phase 3). These let callers configure telemetry
+// without importing the internal package directly.
+type (
+	// Observer receives run/LLM/tool telemetry events. Implement this interface
+	// to send telemetry to any backend (e.g. OpenTelemetry); see
+	// docs/PHASE3_OBSERVABILITY.md for a ready-to-use OpenTelemetry adapter.
+	Observer = observability.Observer
+	// LangSmithConfig configures the built-in LangSmith observer.
+	LangSmithConfig = observability.LangSmithConfig
+
+	// The following are re-exported so custom Observers (e.g. an OpenTelemetry
+	// adapter) can be implemented without importing the internal package.
+	ObserverRunInfo   = observability.RunInfo
+	ObserverRunHandle = observability.RunHandle
+	ObserverLLMCall   = observability.LLMCall
+	ObserverToolCall  = observability.ToolCall
+)
+
+// NewStdoutObserver returns an Observer that prints one JSON event per line to
+// stderr (attribute keys follow the OpenTelemetry GenAI semantic conventions).
+func NewStdoutObserver() Observer { return observability.Stdout{} }
+
+// NewLangSmithObserver returns an Observer that posts each completed agent run
+// to LangSmith over its REST API.
+func NewLangSmithObserver(cfg LangSmithConfig) Observer {
+	return observability.NewLangSmith(cfg)
+}
+
+// Memory / context engineering re-exports (Phase 4).
+type (
+	// Compactor turns a long conversation into a rolling summary + recent turns.
+	Compactor = memory.Compactor
+	// CompactorConfig tunes compaction thresholds.
+	CompactorConfig = memory.CompactorConfig
+	// Summarizer condenses older turns into a running summary.
+	Summarizer = memory.Summarizer
+	// Embedder converts text to vector embeddings for semantic recall.
+	Embedder = memory.Embedder
+	// VectorStore persists and retrieves text embeddings.
+	VectorStore = memory.VectorStore
+	// SummaryStore persists a session's rolling summary.
+	SummaryStore = memory.SummaryStore
+	// MemoryTurn is a single Human/AI exchange.
+	MemoryTurn = memory.Turn
+	// MemoryHit is a semantic-search result.
+	MemoryHit = memory.Hit
+)
+
+// NewCompactor builds a conversation compactor from a summary store and summarizer.
+func NewCompactor(store SummaryStore, summarizer Summarizer, cfg CompactorConfig) *Compactor {
+	return memory.NewCompactor(store, summarizer, cfg)
+}
+
+// NewInMemorySummaryStore returns a process-local summary store (tests/single-node).
+func NewInMemorySummaryStore() SummaryStore { return memory.NewInMemorySummaryStore() }
+
+// NewMongoSummaryStore returns a MongoDB-backed summary store.
+func NewMongoSummaryStore(collection *mongo.Collection) SummaryStore {
+	return mongodb.NewMongoSummaryStore(collection)
+}
+
+// NewInMemoryVectorStore returns a cosine-ranked in-memory vector store.
+func NewInMemoryVectorStore() VectorStore { return memory.NewInMemoryVectorStore() }
+
+// NewMongoVectorStore returns a MongoDB Atlas Vector Search-backed vector store.
+func NewMongoVectorStore(collection *mongo.Collection, indexName string) VectorStore {
+	return mongodb.NewMongoVectorStore(collection, indexName)
+}
+
+// NewAnthropicSummarizer returns a Summarizer backed by the Anthropic SDK.
+func NewAnthropicSummarizer(apiKey, model string) Summarizer {
+	return anthropicllm.NewSummarizer(apiKey, model)
+}
+
+// NewHTTPEmbedder returns an OpenAI-compatible HTTP embedder.
+func NewHTTPEmbedder(apiKey, model string) Embedder { return embed.NewHTTPEmbedder(apiKey, model) }
 
 // Create an instance of the DarkSuitAgent interface
 var darkSuitAgent internal.DarkSuitAgent = internal.NewDarkSuitAgent()
@@ -40,6 +121,42 @@ func NewTool(name string, description string, toolFunc func(string, string, map[
 		Name:        name,
 		Description: description,
 		ToolFunc:    toolFunc,
+	}
+}
+
+/*
+NewToolWithSchema creates a tool that declares a structured JSON-schema input,
+for use with native (provider-side) tool calling (ToolProtocol "native").
+
+properties is the JSON-schema "properties" object and required lists the
+required property names. When the model calls the tool, the raw JSON arguments
+are passed to toolFunc as a JSON string (the tool author unmarshals them).
+
+Tools created with NewTool (no schema) continue to work in both protocols: they
+are exposed natively as a single required string property named "input".
+
+Example:
+
+	weatherTool := darksuitai.NewToolWithSchema(
+		"get_weather",
+		"Get the weather at a location",
+		map[string]any{
+			"location": map[string]any{"type": "string", "description": "City name"},
+		},
+		[]string{"location"},
+		func(inputJSON string, toolName string, meta map[string]interface{}) (string, []interface{}, error) {
+			// unmarshal inputJSON, call your API, return the result
+			return "sunny, 68F", nil, nil
+		},
+	)
+*/
+func NewToolWithSchema(name string, description string, properties map[string]any, required []string, toolFunc func(string, string, map[string]interface{}) (string, []interface{}, error)) tools.BaseTool {
+	return tools.BaseTool{
+		Name:        name,
+		Description: description,
+		ToolFunc:    toolFunc,
+		InputSchema: properties,
+		Required:    required,
 	}
 }
 
@@ -84,7 +201,8 @@ func NewLLMArgs() *LLMArgs {
 				StopSequences: []string{},
 			},
 		},
-		APIKey: nil,
+		APIKey:       nil,
+		ToolProtocol: "xml",
 	}
 }
 
@@ -173,6 +291,60 @@ In this example, the key "openai" with the value "gpt-4o" is added to the ModelT
 */
 func (args *LLMArgs) SetModelType(key, value string) {
 	args.ModelType[key] = value
+}
+
+/*
+SetToolProtocol selects how the agent invokes tools.
+
+  - "xml"    (default): the legacy ReAct/XML protocol, supported by all providers.
+  - "native": provider-side structured tool calling (currently Anthropic only).
+    For non-Anthropic providers the agent automatically falls back to "xml".
+
+Example:
+
+	args := darksuitai.NewLLMArgs()
+	args.SetModelType("anthropic", "claude-sonnet-5")
+	args.SetToolProtocol("native")
+*/
+func (args *LLMArgs) SetToolProtocol(protocol string) {
+	args.ToolProtocol = protocol
+}
+
+/*
+SetObserver attaches a telemetry Observer to the agent. Run, LLM and tool events
+are reported to it during Chat. Use NewStdoutObserver for local debugging or
+NewLangSmithObserver to ship runs to LangSmith; implement Observer yourself to
+integrate OpenTelemetry (see docs/PHASE3_OBSERVABILITY.md).
+
+Example:
+
+	args := darksuitai.NewLLMArgs()
+	args.SetObserver(darksuitai.NewLangSmithObserver(darksuitai.LangSmithConfig{
+		APIKey:  "ls-...",
+		Project: "darksuitai-prod",
+	}))
+*/
+func (args *LLMArgs) SetObserver(observer Observer) {
+	args.Observer = observer
+}
+
+/*
+SetCompactor enables conversation compaction: instead of injecting the raw
+last-K transcript, the agent injects a rolling summary of older turns plus the
+most recent turns verbatim. This keeps the context window small on long sessions
+without losing important detail.
+
+Example:
+
+	store := darksuitai.NewMongoSummaryStore(summaryCollection)
+	summarizer := darksuitai.NewAnthropicSummarizer(apiKey, "claude-haiku-4-5")
+	args.SetCompactor(darksuitai.NewCompactor(store, summarizer, darksuitai.CompactorConfig{
+		MaxTurns:   20,
+		KeepRecent: 6,
+	}))
+*/
+func (args *LLMArgs) SetCompactor(compactor *Compactor) {
+	args.Compactor = compactor
 }
 
 /*
@@ -277,6 +449,9 @@ func (cargs *LLMArgs) NewSuitedAgent() (*AgentSynapse, error) {
 			MongoDB:               cargs.MongoDB,
 			ModelKwargs:           cargs.ModelKwargs,
 			APIKey:                cargs.APIKey,
+			ToolProtocol:          cargs.ToolProtocol,
+			Observer:              cargs.Observer,
+			Compactor:             cargs.Compactor,
 		},
 	}, nil
 }
@@ -292,8 +467,23 @@ func (a *AgentSynapse) Program(maxIteration int, sessionId string, verbose bool)
 	}
 	var promptAgent agent.PromptAgentInterface = agent.NewPromptAgent()
 
+	// Capture native tool-calling configuration before the ReAct/XML template
+	// overwrites the system prompt below. Native mode uses the raw system
+	// instruction (which may be nil) rather than the XML-rendered one.
+	rawSystem := a.synapse.SystemPrompt
+	var provider, model string
+	for p, m := range a.synapse.ModelType {
+		provider, model = p, m
+	}
+	var maxTokens int
+	var temperature float64
+	if n := len(a.synapse.ModelKwargs); n > 0 {
+		kw := a.synapse.ModelKwargs[n-1]
+		maxTokens, temperature = kw.MaxTokens, kw.Temperature
+	}
+
 	basePrompt, sysPrompt, tools, toolNames, err := promptAgent.PreparePrompt(a.synapse.SystemPrompt,
-		a.synapse.ChatInstructionPrompt, a.synapse.ToolNodes, a.synapse.PromptKeys, a.synapse.MongoDB, sessionId)
+		a.synapse.ChatInstructionPrompt, a.synapse.ToolNodes, a.synapse.PromptKeys, a.synapse.MongoDB, sessionId, a.synapse.Compactor)
 	if err != nil {
 		return fmt.Errorf("failed to prepare prompt: %w", err)
 	}
@@ -311,6 +501,14 @@ func (a *AgentSynapse) Program(maxIteration int, sessionId string, verbose bool)
 		ChatMemoryCollection: a.synapse.MongoDB,
 		Verbose:              verbose,
 		SessionId:            sessionId,
+		ToolProtocol:         a.synapse.ToolProtocol,
+		Provider:             provider,
+		Model:                model,
+		APIKey:               a.synapse.APIKey,
+		MaxTokens:            maxTokens,
+		Temperature:          temperature,
+		RawSystemPrompt:      rawSystem,
+		Observer:             a.synapse.Observer,
 	}
 	a._streamAgentPreProgram = _stream.AgentPreProgram{
 		BasePrompt:           basePrompt,
@@ -341,8 +539,23 @@ func (a *AgentSynapse) Program(maxIteration int, sessionId string, verbose bool)
 //   - An error if the execution fails.
 func (a *AgentSynapse) Chat(input string) (string, any, error) {
 
-	response, toolData, err := a._chatAgentPreProgram.Executor(map[string][]byte{"question": []byte(input)}, a._chatAgentPreProgram.SessionId,
-		a._chatAgentPreProgram.MaxIteration, a._chatAgentPreProgram.Verbose)
+	query := map[string][]byte{"question": []byte(input)}
+
+	// Route to native (provider-side) tool calling when requested and available.
+	// Native tool calling is currently implemented for Anthropic only; every
+	// other provider transparently falls back to the XML/ReAct executor.
+	var (
+		response []byte
+		toolData any
+		err      error
+	)
+	if a._chatAgentPreProgram.ToolProtocol == "native" && a._chatAgentPreProgram.Provider == "anthropic" {
+		response, toolData, err = a._chatAgentPreProgram.NativeExecutor(query, a._chatAgentPreProgram.SessionId,
+			a._chatAgentPreProgram.MaxIteration, a._chatAgentPreProgram.Verbose)
+	} else {
+		response, toolData, err = a._chatAgentPreProgram.Executor(query, a._chatAgentPreProgram.SessionId,
+			a._chatAgentPreProgram.MaxIteration, a._chatAgentPreProgram.Verbose)
+	}
 	if err != nil {
 		return "", nil, err
 	}

@@ -71,8 +71,8 @@ func main() {
 	args := darksuitai.NewChatLLMArgs()
 	args.AddAPIKey([]byte(`your-api-key`)) // pass LLM API Key
 	// args.SetChatInstruction([]byte(`Your chat instruction goes here`)) // uncomment to pass your own prompt instruction
-	args.AddPromptKey("year", []byte(`2024`)) // pass variables to your prompt
-	args.SetModelType("openai", "gpt-4o") // set the model
+	args.AddPromptKey("year", []byte(`2026`)) // pass variables to your prompt
+	args.SetModelType("anthropic", "claude-sonnet-5") // set the model (2026 IDs: claude-opus-4-8, claude-sonnet-5, claude-haiku-4-5; also "openai"/"gemini"/"groq")
 	args.AddModelKwargs(500, 0.8, true, []string{"\nObservation:"}) // set model keyword arguments
 	llm,err := args.NewLLM()
 	if err != nil{
@@ -133,9 +133,9 @@ func main() {
 	// Get a handle to the database and collections
 	db := client.Database(databaseName)
 	// args.SetChatInstruction([]byte(`Your chat instruction goes here`)) // uncomment to pass your own prompt instruction
-	args.AddPromptKey("year", []byte(`2024`)) // pass variables to your prompt
+	args.AddPromptKey("year", []byte(`2026`)) // pass variables to your prompt
 	args.MongoDB(db) // add mongodb client
-	args.SetModelType("openai", "gpt-4o") // set the model
+	args.SetModelType("anthropic", "claude-sonnet-5") // set the model (2026 IDs: claude-opus-4-8, claude-sonnet-5, claude-haiku-4-5; also "openai"/"gemini"/"groq")
 	args.AddModelKwargs(500, 0.8, true, []string{"\nObservation:"}) // set model keyword arguments
 	llm,err := args.NewLLM()
 	if err != nil{
@@ -219,8 +219,8 @@ func main() {
 
 	// args.SetChatInstruction([]byte(`Your chat instruction goes here`)) // uncomment to pass your own prompt instruction
 	args.SetMongoDBChatMemory(db) // set the database
-	args.AddPromptKey("year", []byte(`2024`)) // pass variables to your prompt
-	args.SetModelType("openai", "gpt-4o") // set the model
+	args.AddPromptKey("year", []byte(`2026`)) // pass variables to your prompt
+	args.SetModelType("anthropic", "claude-sonnet-5") // set the model (2026 IDs: claude-opus-4-8, claude-sonnet-5, claude-haiku-4-5; also "openai"/"gemini"/"groq")
 	args.AddModelKwargs(1000, 0.8, true, []string{"\nObservation:"}) // set model keyword arguments
 
 	agent,err := args.NewSuitedAgent()

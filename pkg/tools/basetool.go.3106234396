@@ -1,9 +1,8 @@
 package tools
 
-import "github.com/darksuit-ai/darksuitai/pkg/tools/google"
-
+import 	 "github.com/darksuit-ai/darksuitai/pkg/tools/google"
 // Define ToolFunc to return a slice of interface{} to hold any number of values
-type ToolFunc func(string, string, map[string]interface{}) (string, []interface{}, error)
+type ToolFunc func(string,string, map[string]interface{}) (string, []interface{},error)
 
 type BaseTool struct {
 	Name        string   // Name of the tool
@@ -38,7 +37,8 @@ var GoogleTool = BaseTool{
 	- The user is asking about some term you are totally unfamiliar with (it might be new).
 	- The user explicitly asks you to browse, show images, or provide links to references.
 Always rephrase the input word in the best search term to get results.`,
-	ToolFunc: func(query string, toolName string, meta map[string]interface{}) (string, []interface{}, error) {
+	ToolFunc: func(query string,toolName string, meta map[string]interface{}) (string, []interface{}, error) {
 		return google.GoogleSearchAndImages(query, nil)
 	},
 }
+
