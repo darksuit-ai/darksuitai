@@ -21,8 +21,10 @@
 go.work
 go.work.sum
 .idea
-/docs
 /tsk
 .env
 /logs
-/doc
+
+# Private launch strategy (do NOT publish)
+LAUNCH_PLAN.md
+/launch/
