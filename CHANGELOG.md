@@ -92,7 +92,5 @@ engineering, and built-in observability — while keeping the public API stable.
 3. Put keys in `.env` and call `darksuitai.LoadEnv()` at startup (or export them).
 4. If you relied on Anthropic temperature, note it's no longer sent.
 
-**Full details:** `docs/PHASE3_OBSERVABILITY.md`, `docs/PHASE4_MEMORY.md`, and the
-runnable example in `doc/`.
 
 [0.0.9]: https://github.com/darksuit-ai/darksuitai/releases/tag/v0.0.9

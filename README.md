@@ -34,6 +34,25 @@ Almost every AI-agent framework is Python. If your backend is Go, that means run
 
 > Deliberately lean: loop, context, and memory engineering are first-class primitives — not buried under layers of abstraction.
 
+## Is DarkSuitAI a fit?
+
+DarkSuitAI is a strong fit if you:
+
+- are building LLM agents and want them **in Go**, running in the same process as your backend — no separate Python service to deploy and operate;
+- expect to run agents in **production** and want observability (run/LLM/tool telemetry), loop guardrails (max-iteration, no-progress detection), and official-SDK retries handled for you;
+- want **native tool calling** where the provider supports it, with a portable XML/ReAct fallback so you're never locked in;
+- care about **context & memory engineering** — rolling-summary compaction and semantic (vector) recall to keep long sessions cheap and coherent;
+- need **provider flexibility** so your architecture can evolve without rewrites — Anthropic, OpenAI, Gemini, and Groq behind one interface;
+- prefer a **lean, readable core** you can reason about over a heavy orchestration abstraction.
+
+Consider a different tool if you need, today:
+
+- graph-based multi-agent orchestration (sequential / concurrent / group-collaboration / custom routing),
+- durable checkpointing and restartable long-running workflows,
+- built-in human-in-the-loop approval gates.
+
+These aren't in DarkSuitAI's scope yet (contributions welcome). If you want a focused, production-grade agent in Go, it's a great fit.
+
 ## Install
 
 ```bash
